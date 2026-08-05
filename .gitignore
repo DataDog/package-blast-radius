@@ -1,0 +1,7 @@
+data/
+bin/
+output/
+.DS_Store
+*.csv
+*.json
+*.json.gz

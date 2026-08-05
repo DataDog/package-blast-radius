@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blast Radius Viewer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: #0d1117; color: #c9d1d9; padding: 20px; }
+  h1 { font-size: 1.4em; margin-bottom: 4px; color: #58a6ff; }
+  .subtitle { color: #8b949e; margin-bottom: 20px; font-size: 0.9em; }
+  .loading { text-align: center; padding: 80px 20px; color: #8b949e; font-size: 1.1em; }
+  .loading .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 10px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .stats { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
+  .stat { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 12px 16px; }
+  .stat-value { font-size: 1.5em; font-weight: 700; color: #f0f6fc; }
+  .stat-label { font-size: 0.8em; color: #8b949e; margin-top: 2px; }
+  .controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  input, select { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 12px; border-radius: 6px; font-size: 0.9em; font-family: inherit; }
+  input:focus, select:focus { outline: none; border-color: #58a6ff; }
+  input[type="text"] { width: 300px; }
+  input[type="number"] { width: 90px; }
+  label { font-size: 0.85em; color: #8b949e; }
+  .filter-group { display: flex; flex-direction: column; gap: 4px; }
+  .results-info { font-size: 0.85em; color: #8b949e; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; }
+  .download-btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.85em; margin-left: auto; }
+  .download-btn:hover { background: #30363d; border-color: #58a6ff; }
+  .download-btn:disabled { opacity: 0.4; cursor: default; }
+  .pager { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+  .pager button { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+  .pager button:hover { background: #30363d; }
+  .pager button:disabled { opacity: 0.4; cursor: default; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+  th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #30363d; color: #8b949e; font-weight: 600; position: sticky; top: 0; background: #0d1117; cursor: pointer; user-select: none; }
+  th:hover { color: #58a6ff; }
+  th.sorted::after { content: ' ▼'; font-size: 0.7em; }
+  th.sorted.asc::after { content: ' ▲'; font-size: 0.7em; }
+  td { padding: 6px 12px; border-bottom: 1px solid #21262d; vertical-align: top; }
+  tr:hover td { background: #161b22; }
+  .pkg-link { color: #58a6ff; font-weight: 500; cursor: pointer; text-decoration: none; }
+  .pkg-link:hover { text-decoration: underline; }
+  .version { color: #8b949e; }
+  .depth-badge { display: inline-block; background: #21262d; border-radius: 10px; padding: 2px 8px; font-size: 0.8em; min-width: 20px; text-align: center; }
+  .depth-1 { background: #0d419d; color: #a5d6ff; }
+  .depth-2 { background: #5a3286; color: #d2a8ff; }
+  .depth-3 { background: #6e3b00; color: #f9c513; }
+  .depth-4 { background: #5c0a0a; color: #ffa198; }
+  .depth-5 { background: #3d1f00; color: #ffb86c; }
+  .downloads { text-align: right; font-variant-numeric: tabular-nums; }
+  .path-text { font-size: 0.8em; color: #8b949e; }
+  .path-text .arrow { color: #484f58; }
+  .path-text .req { color: #d2a8ff; }
+  .path-text .pkg { color: #79c0ff; }
+  .hidden { display: none; }
+  #table-container { max-height: calc(100vh - 320px); overflow-y: auto; }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; display: flex; align-items: center; justify-content: center; }
+  .modal { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; max-width: 700px; width: 90vw; max-height: 85vh; overflow-y: auto; position: relative; }
+  .modal-close { position: absolute; top: 12px; right: 16px; background: none; border: none; color: #8b949e; font-size: 1.4em; cursor: pointer; line-height: 1; }
+  .modal-close:hover { color: #f0f6fc; }
+  .modal h2 { font-size: 1.2em; color: #58a6ff; margin-bottom: 4px; word-break: break-all; }
+  .modal .detail-version { color: #8b949e; font-size: 0.9em; margin-bottom: 16px; }
+  .modal .detail-row { display: flex; gap: 20px; margin-bottom: 16px; flex-wrap: wrap; }
+  .modal .detail-item { }
+  .modal .detail-label { font-size: 0.75em; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; }
+  .modal .detail-val { font-size: 1.1em; color: #f0f6fc; font-weight: 600; }
+  .modal .npm-link { display: inline-block; margin-bottom: 20px; color: #58a6ff; text-decoration: none; font-size: 0.85em; }
+  .modal .npm-link:hover { text-decoration: underline; }
+
+  /* Path graph */
+  .path-graph { display: flex; flex-direction: column; align-items: center; gap: 0; margin-top: 8px; }
+  .path-node { background: #0d1117; border: 2px solid #30363d; border-radius: 8px; padding: 10px 16px; text-align: center; min-width: 200px; max-width: 100%; position: relative; }
+  .path-node.is-root { border-color: #58a6ff; background: #0d1117; }
+  .path-node.is-target { border-color: #f85149; background: #1a0a0a; }
+  .path-node .node-name { color: #58a6ff; font-weight: 600; font-size: 0.95em; word-break: break-all; }
+  .path-node.is-target .node-name { color: #f85149; }
+  .path-node .node-version { color: #8b949e; font-size: 0.8em; }
+  .path-edge { display: flex; flex-direction: column; align-items: center; padding: 2px 0; color: #484f58; }
+  .path-edge .edge-line { width: 2px; height: 16px; background: #30363d; }
+  .path-edge .edge-req { font-size: 0.75em; color: #d2a8ff; background: #161b22; padding: 1px 8px; border-radius: 4px; border: 1px solid #30363d; }
+  .path-edge .edge-arrow { color: #30363d; font-size: 0.9em; line-height: 1; }
+</style>
+</head>
+<body>
+
+<div id="loading" class="loading"><span class="spinner"></span> Loading...</div>
+
+<div id="main-view" class="hidden">
+  <h1 id="title"></h1>
+  <p class="subtitle" id="meta"></p>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="controls">
+    <div class="filter-group">
+      <label>Search (package or path)</label>
+      <input type="text" id="search" placeholder="e.g. express, @sentry...">
+    </div>
+    <div class="filter-group">
+      <label>Min depth</label>
+      <input type="number" id="minDepth" value="1" min="1">
+    </div>
+    <div class="filter-group">
+      <label>Max depth</label>
+      <input type="number" id="maxDepth" value="99" min="1">
+    </div>
+    <div class="filter-group">
+      <label>Min downloads/wk</label>
+      <input type="number" id="minDownloads" value="0" min="0">
+    </div>
+    <div class="filter-group">
+      <label>Per page</label>
+      <select id="perPage">
+        <option value="100" selected>100</option>
+        <option value="250">250</option>
+        <option value="500">500</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="results-info">
+    <span id="resultsInfo"></span>
+    <button id="downloadBtn" class="download-btn" title="Download all rows matching current filters as CSV">⤓ Download CSV</button>
+  </div>
+  <div id="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th data-sort="name">Package</th>
+          <th data-sort="version">Version</th>
+          <th data-sort="depth">Depth</th>
+          <th data-sort="weekly_downloads">Downloads/wk</th>
+          <th>Path</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <div class="pager">
+    <button id="prevBtn" disabled>&larr; Prev</button>
+    <span id="pageInfo" style="color:#8b949e;font-size:0.85em"></span>
+    <button id="nextBtn">Next &rarr;</button>
+  </div>
+</div>
+
+<div id="modal-root"></div>
+
+<script>
+let summary = {};
+let currentOffset = 0;
+let currentTotal = 0;
+let currentResults = [];
+let sortCol = 'weekly_downloads';
+let sortAsc = false;
+
+const $ = id => document.getElementById(id);
+
+async function init() {
+  const resp = await fetch('/api/summary');
+  summary = await resp.json();
+
+  $('loading').classList.add('hidden');
+  $('main-view').classList.remove('hidden');
+
+  $('title').textContent = 'Blast radius: ' + summary.target;
+  $('meta').textContent = 'System: ' + summary.system + ' | Elapsed: ' + summary.elapsed;
+
+  let statsHTML = '';
+  statsHTML += stat(fmt(summary.total_affected), 'Affected versions');
+  statsHTML += stat(fmt(summary.unique_packages), 'Unique packages');
+  statsHTML += stat(fmt(summary.total_edges), 'Edges scanned');
+  statsHTML += stat(summary.max_depth, 'Max depth');
+  if (summary.depth_counts) {
+    for (const [d, c] of Object.entries(summary.depth_counts).sort((a,b) => a[0]-b[0])) {
+      statsHTML += stat(fmt(c), 'Depth ' + d);
+    }
+  }
+  $('stats').innerHTML = statsHTML;
+
+  $('maxDepth').value = summary.max_depth;
+  fetchPage();
+}
+
+function stat(value, label) {
+  return '<div class="stat"><div class="stat-value">' + value + '</div><div class="stat-label">' + label + '</div></div>';
+}
+
+async function fetchPage() {
+  const perPage = parseInt($('perPage').value);
+  const params = new URLSearchParams({
+    search: $('search').value,
+    minDepth: $('minDepth').value,
+    maxDepth: $('maxDepth').value,
+    minDownloads: $('minDownloads').value,
+    limit: perPage,
+    offset: currentOffset,
+    sort: sortCol,
+    dir: sortAsc ? 'asc' : 'desc',
+  });
+
+  const resp = await fetch('/api/packages?' + params);
+  const data = await resp.json();
+  currentTotal = data.total;
+  currentResults = data.results;
+
+  const showing = data.results.length > 0
+    ? fmt(data.offset + 1) + '\u2013' + fmt(data.offset + data.results.length)
+    : '0';
+  $('resultsInfo').textContent = 'Showing ' + showing + ' of ' + fmt(data.total);
+  $('prevBtn').disabled = currentOffset === 0;
+  $('nextBtn').disabled = currentOffset + perPage >= currentTotal;
+  $('pageInfo').textContent = 'Page ' + (Math.floor(currentOffset / perPage) + 1) + ' of ' + Math.max(1, Math.ceil(currentTotal / perPage));
+
+  const html = [];
+  for (let i = 0; i < data.results.length; i++) {
+    const a = data.results[i];
+    html.push('<tr>',
+      '<td><a class="pkg-link" data-idx="', i, '">', esc(a.name), '</a></td>',
+      '<td class="version">', esc(a.version), '</td>',
+      '<td><span class="depth-badge depth-', Math.min(a.depth, 5), '">', a.depth, '</span></td>',
+      '<td class="downloads">', a.weekly_downloads > 0 ? fmt(a.weekly_downloads) : '-', '</td>',
+      '<td class="path-text">', renderPathInline(a.path, a.target), '</td>',
+      '</tr>');
+  }
+  $('tbody').innerHTML = html.join('');
+
+  document.querySelectorAll('th').forEach(th => {
+    th.classList.remove('sorted', 'asc');
+    if (th.dataset.sort === sortCol) {
+      th.classList.add('sorted');
+      if (sortAsc) th.classList.add('asc');
+    }
+  });
+}
+
+function renderPathInline(path, target) {
+  if (!path || path.length === 0) return '';
+  const finalTarget = target || summary.target;
+  const parts = [];
+  for (const s of path) {
+    parts.push('<span class="pkg">', esc(s.package), '@', esc(s.version),
+      '</span> <span class="arrow">\u2500\u2500</span><span class="req">(', esc(s.requirement),
+      ')</span><span class="arrow">\u2500\u2500\u25B6</span> ');
+  }
+  parts.push('<span class="pkg">', esc(finalTarget), '</span>');
+  return parts.join('');
+}
+
+function showDetail(a) {
+  const npmUrl = 'https://www.npmjs.com/package/' + encodeURIComponent(a.name);
+
+  let graphHTML = '<div class="path-graph">';
+
+  // First node: the affected package (root of chain)
+  graphHTML += '<div class="path-node is-root">';
+  graphHTML += '<div class="node-name">' + esc(a.name) + '</div>';
+  graphHTML += '<div class="node-version">' + esc(a.version) + '</div>';
+  graphHTML += '</div>';
+
+  // Edges + intermediate nodes
+  if (a.path && a.path.length > 1) {
+    for (let i = 1; i < a.path.length; i++) {
+      const prev = a.path[i - 1];
+      const step = a.path[i];
+
+      // Edge with requirement
+      graphHTML += '<div class="path-edge">';
+      graphHTML += '<div class="edge-line"></div>';
+      graphHTML += '<div class="edge-req">' + esc(prev.requirement) + '</div>';
+      graphHTML += '<div class="edge-arrow">\u25BC</div>';
+      graphHTML += '</div>';
+
+      // Intermediate node
+      graphHTML += '<div class="path-node">';
+      graphHTML += '<div class="node-name">' + esc(step.package) + '</div>';
+      graphHTML += '<div class="node-version">' + esc(step.version) + '</div>';
+      graphHTML += '</div>';
+    }
+  }
+
+  // Final edge to target
+  const lastStep = (a.path && a.path.length > 0) ? a.path[a.path.length - 1] : null;
+  if (lastStep) {
+    graphHTML += '<div class="path-edge">';
+    graphHTML += '<div class="edge-line"></div>';
+    graphHTML += '<div class="edge-req">' + esc(lastStep.requirement) + '</div>';
+    graphHTML += '<div class="edge-arrow">\u25BC</div>';
+    graphHTML += '</div>';
+  }
+
+  // Target node — prefer per-row target, fall back to summary
+  const targetLabel = a.target || summary.target;
+  graphHTML += '<div class="path-node is-target">';
+  graphHTML += '<div class="node-name">' + esc(targetLabel) + '</div>';
+  graphHTML += '<div class="node-version" style="color:#f85149">compromised</div>';
+  graphHTML += '</div>';
+
+  graphHTML += '</div>';
+
+  $('modal-root').innerHTML =
+    '<div class="modal-overlay" id="modal-overlay">' +
+    '<div class="modal">' +
+    '<button class="modal-close" id="modal-close">&times;</button>' +
+    '<h2>' + esc(a.name) + '</h2>' +
+    '<div class="detail-version">' + esc(a.version) + '</div>' +
+    '<a class="npm-link" href="' + npmUrl + '" target="_blank" rel="noopener">\u2197 View on npm</a>' +
+    '<div class="detail-row">' +
+      '<div class="detail-item"><div class="detail-label">Depth</div><div class="detail-val"><span class="depth-badge depth-' + Math.min(a.depth, 5) + '">' + a.depth + '</span></div></div>' +
+      '<div class="detail-item"><div class="detail-label">Downloads/wk</div><div class="detail-val">' + (a.weekly_downloads > 0 ? fmt(a.weekly_downloads) : '-') + '</div></div>' +
+    '</div>' +
+    '<div class="detail-label" style="margin-bottom:8px">DEPENDENCY PATH</div>' +
+    graphHTML +
+    '</div></div>';
+
+  $('modal-close').onclick = closeModal;
+  $('modal-overlay').onclick = function(e) { if (e.target === this) closeModal(); };
+  document.addEventListener('keydown', onEsc);
+}
+
+function closeModal() {
+  $('modal-root').innerHTML = '';
+  document.removeEventListener('keydown', onEsc);
+}
+
+function onEsc(e) { if (e.key === 'Escape') closeModal(); }
+
+function fmt(n) { return Number(n).toLocaleString(); }
+const escDiv = document.createElement('div');
+function esc(s) { escDiv.textContent = s; return escDiv.innerHTML; }
+
+// Click handler for package names (delegated)
+$('tbody')?.addEventListener?.('click', function(e) {
+  const link = e.target.closest('.pkg-link');
+  if (!link) return;
+  const idx = parseInt(link.dataset.idx);
+  if (currentResults[idx]) showDetail(currentResults[idx]);
+});
+
+// Filter events
+let debounceTimer;
+function onFilterChange() {
+  currentOffset = 0;
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fetchPage, 300);
+}
+
+$('search').addEventListener('input', onFilterChange);
+$('minDepth').addEventListener('input', onFilterChange);
+$('maxDepth').addEventListener('input', onFilterChange);
+$('minDownloads').addEventListener('input', onFilterChange);
+$('perPage').addEventListener('change', () => { currentOffset = 0; fetchPage(); });
+
+$('prevBtn').addEventListener('click', () => {
+  currentOffset = Math.max(0, currentOffset - parseInt($('perPage').value));
+  fetchPage();
+});
+$('nextBtn').addEventListener('click', () => {
+  currentOffset += parseInt($('perPage').value);
+  fetchPage();
+});
+
+$('downloadBtn').addEventListener('click', () => {
+  const params = new URLSearchParams({
+    search: $('search').value,
+    minDepth: $('minDepth').value,
+    maxDepth: $('maxDepth').value,
+    minDownloads: $('minDownloads').value,
+    sort: sortCol,
+    dir: sortAsc ? 'asc' : 'desc',
+  });
+  window.location.href = '/api/download?' + params;
+});
+
+document.querySelectorAll('th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.sort;
+    if (sortCol === col) { sortAsc = !sortAsc; }
+    else { sortCol = col; sortAsc = col === 'name'; }
+    currentOffset = 0;
+    fetchPage();
+  });
+});
+
+init();
+</script>
+</body>
+</html>
