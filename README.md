@@ -1,8 +1,8 @@
 # Investigate the blast radius of compromised npm packages
 
-`blast-radius` helps you analyze the blast radius of a compromised dependency. When a legitimate package gets compromised (for instance, [axios](https://securitylabs.datadoghq.com/articles/axios-npm-supply-chain-compromise/) versions 1.14.1 and 0.30.4), it's challenging to answer the question: "**Which npm packages, if installed during the compromission window, would have led to the malicious package being installed?**
+`blast-radius` analyzes the blast radius of a compromised dependency. When a legitimate package gets compromised (for instance, [axios](https://securitylabs.datadoghq.com/articles/axios-npm-supply-chain-compromise/) versions 1.14.1 and 0.30.4), one question is hard to answer: **which npm packages, if installed during the compromise window, would have pulled in the malicious version?**
 
-Given a package name and version (even if yanked), `blast-radius` finds all packages whose declared version range could resolve to it. This project uses a local snapshot of the [deps.dev](https://deps.dev) dependency graph made available for Google through a BigQuery public dataset.
+Give `blast-radius` a package name and version, even a yanked one, and it finds every package whose declared version range could resolve to it. The tool queries a local snapshot of the [deps.dev](https://deps.dev) dependency graph, which Google publishes as a BigQuery public dataset.
 
 ## Sample usage
 
@@ -48,28 +48,27 @@ Saved to output/2026-08-05_160650/
   paths.csv              182 rows
 ```
 
-You can then use `blast-radius visualize output/2026-08-05_160650/blast-radius.json` to visualize affected packages.
-
+Visualize the affected packages with `blast-radius visualize output/2026-08-05_160650/blast-radius.json`.
 
 ## How it works
 
-1. Pulls the [deps.dev BigQuery dataset](https://docs.deps.dev/bigquery/v1/) to local Parquet files and imports them into a local DuckDB database (single file), containing all npm direct dependency edges (package → dependency + version range).
-2. Queries the database, filtering edges where the declared version range includes the target version (e.g., `^1.6.1` matches `1.14.1`)
-3. Optionally enriches results with weekly download counts from the npm API (`--enrich-with-download-count`, disabled by default)
+1. `blast-radius` pulls the [deps.dev BigQuery dataset](https://docs.deps.dev/bigquery/v1/) into local Parquet files and imports them into a single local DuckDB database, containing all npm direct dependency edges (package → dependency + version range).
+2. It queries the database, filtering edges where the declared version range includes the target version (for example, `^1.6.1` matches `1.14.1`).
+3. Optionally, it enriches results with weekly download counts from the npm API (`--enrich-with-download-count`, disabled by default).
 
-This works even for **yanked/removed versions** because we check the declared range, not what the registry currently resolves to.
+This works even for **yanked or removed versions**, because `blast-radius` checks the declared range rather than what the registry currently resolves to.
 
 ## Setup
 
 ### Prerequisites
 
 - Go 1.25+
-- The [DuckDB CLI](https://duckdb.org/docs/installation/) must be installed (`brew install duckdb` on macOS)
-- You must have access to a Google Cloud account and be authenticated using `gcloud auth login --update-adc`
+- The [DuckDB CLI](https://duckdb.org/docs/installation/), installed with `brew install duckdb` on macOS
+- A Google Cloud account, authenticated using `gcloud auth login --update-adc`
 
 ### Overview of the `blast-radius` CLI
 
-A single binary provides all three subcommands:
+One binary provides all three subcommands:
 
 | command | purpose |
 | --- | --- |
@@ -79,15 +78,15 @@ A single binary provides all three subcommands:
 
 ### Step 1: Get the data
 
-The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](https://docs.deps.dev/bigquery/v1/). First, you need to download the data using `blast-radius download-data`. This is a one-time operation that you won't need to repeat for every analysis. It will persist around 20 GB of files on your machine, make sure you have enough disk space available.
+The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](https://docs.deps.dev/bigquery/v1/). Download it once with `blast-radius download-data`; you won't need to repeat this for every analysis. It persists around 20 GB of files on your machine, so make sure you have enough disk space available.
 
-`blast-radius download-data` will:
-- create a BigQuery table in your Google Cloud project (around 20 GB, expected monthly cost < $1)
-- query the BigQuery table and export it (one-time cost ~$10)
-- export the data as Parquet files into a Google Cloud Storage (GCS) bucket (around 10 GB, expected monthly cost < $1)
-- download the Parquet files to your machine locally
-- build a local DuckDB instance (single, self-contained file) from it
-- remove the Parquet files from your machine
+`blast-radius download-data`:
+- creates a BigQuery table in your Google Cloud project (around 20 GB, expected monthly cost < $1)
+- queries the BigQuery table and exports it (one-time cost ~$10)
+- exports the data as Parquet files into a Google Cloud Storage (GCS) bucket (around 10 GB, expected monthly cost < $1)
+- downloads the Parquet files to your machine
+- builds a local DuckDB instance (single, self-contained file) from them
+- removes the Parquet files from your machine
 
 
 The command typically takes 20-30 minutes to complete. Usage:
@@ -171,7 +170,7 @@ Every run writes its full results to `output/<YYYY-MM-DD_HHMMSS>/`.
 
 ### Step 3: Visualize the data
 
-Run the following command to spin up a graphical interface to explore the data:
+Spin up a graphical interface to explore the data:
 
 ```bash
 blast-radius visualize output/2026-08-05_160650/blast-radius.json
