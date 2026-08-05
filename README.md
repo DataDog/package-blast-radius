@@ -14,13 +14,11 @@ $ blast-radius analyze npm @asyncapi/generator 3.3.1  --depth 10 --enrich-with-d
 Computing blast radius for @asyncapi/generator@3.3.1 (NPM), depth=10
 
 Depth 1: querying dependents of 1 package(s)...
-Depth 1: got 1459 edges, filtering by version range...
-Depth 1: found 89 new affected packages
+Depth 1: scanned 1459 edges, found 89 new affected packages
 Depth 2: querying dependents of 8 package(s)...
-Depth 2: got 93 edges, filtering by version range...
-Depth 2: found 93 new affected packages
-Depth 3: got 0 edges, filtering by version range...
-Depth 3: found 0 new affected packages
+Depth 2: scanned 93 edges, found 93 new affected packages
+Depth 3: querying dependents of 2 package(s)...
+Depth 3: scanned 0 edges, found 0 new affected packages
 
 Total: 182 affected versions (10 unique packages)
 Enriching 10 unique packages with download counts...
@@ -43,12 +41,13 @@ asyncapi-mcp-server                                          3.0.0    1      8  
 trusted-publishing-test_asyncapi-cli                         4.1.3    1      1             trusted-publishing-test_asyncapi-cli@4.1.3 ──(^3.0.1)──▶ @asyncapi/generator@3.3.1
 
 Saved to output/2026-08-05_160650/
-  blast-radius.json      feeds `blast-radius visualize`
+  blast-radius.json      full report
   affected-packages.csv  10 packages
   paths.csv              182 rows
-```
 
-Visualize the affected packages with `blast-radius visualize output/2026-08-05_160650/blast-radius.json`.
+Browse the results with:
+  blast-radius visualize output/2026-08-05_160650/blast-radius.json
+```
 
 ## How it works
 
@@ -185,3 +184,12 @@ make test       # run the unit tests
 make vet        # run go vet
 make clean      # remove bin/
 ```
+
+## Known limitations
+
+### Multi-target path attribution
+
+When analyzing multiple compromised packages or versions in one run, `blast-radius` currently keeps one path per affected package version. If the same package version can reach more than one compromised target, the report records the first matching target and path it finds, and later matching targets are not shown for that package version.
+
+The package version is still reported as affected, but `blast-radius.json` and
+`paths.csv` may not list every compromised target it could resolve to.

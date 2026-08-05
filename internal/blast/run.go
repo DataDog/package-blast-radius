@@ -206,30 +206,23 @@ func Run(ctx context.Context, opts Options) error {
 
 		fmt.Fprintf(progress, "Depth %d: querying dependents of %d package(s)...\n", d+1, len(names))
 
-		var rawDeps []RawDependent
-		if len(names) == 1 {
-			rawDeps, err = source.QueryDirectDependents(names[0])
-		} else {
-			rawDeps, err = source.QueryDependentsOfNames(names)
-		}
-		if err != nil {
-			return fmt.Errorf("query at depth %d failed: %w", d+1, err)
-		}
-		totalEdges += len(rawDeps)
-
-		fmt.Fprintf(progress, "Depth %d: got %d edges, filtering by version range...\n", d+1, len(rawDeps))
-
 		frontierByName := make(map[string][]frontierEntry)
 		for _, f := range frontier {
 			frontierByName[f.pkg.Name] = append(frontierByName[f.pkg.Name], f)
 		}
 
 		var nextFrontier []frontierEntry
+		edges := 0
 
-		for _, dep := range rawDeps {
+		// Edges are filtered as they arrive rather than collected first: a
+		// popular package has millions of direct dependents, and holding a whole
+		// depth's worth of them costs gigabytes.
+		keepIfAffected := func(dep RawDependent) error {
+			edges++
+
 			key := dep.DependentName + "@" + dep.DependentVersion
 			if visited[key] {
-				continue
+				return nil
 			}
 
 			parents := frontierByName[dep.TargetName]
@@ -241,7 +234,7 @@ func Run(ctx context.Context, opts Options) error {
 				}
 			}
 			if matchedParent == nil {
-				continue
+				return nil
 			}
 
 			visited[key] = true
@@ -273,9 +266,21 @@ func Run(ctx context.Context, opts Options) error {
 				path:   path,
 				target: matchedParent.target,
 			})
+			return nil
 		}
 
-		fmt.Fprintf(progress, "Depth %d: found %d new affected packages\n", d+1, len(nextFrontier))
+		if len(names) == 1 {
+			err = source.QueryDirectDependents(names[0], keepIfAffected)
+		} else {
+			err = source.QueryDependentsOfNames(names, keepIfAffected)
+		}
+		if err != nil {
+			return fmt.Errorf("query at depth %d failed: %w", d+1, err)
+		}
+		totalEdges += edges
+
+		fmt.Fprintf(progress, "Depth %d: scanned %d edges, found %d new affected packages\n",
+			d+1, edges, len(nextFrontier))
 		frontier = nextFrontier
 	}
 
