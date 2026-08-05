@@ -141,19 +141,27 @@ func TestBuildDatabaseRemovesTheDatabaseWhenDuckDBFails(t *testing.T) {
 }
 
 func TestBuildDatabaseReplacesAnExistingDatabase(t *testing.T) {
-	runner := &fakeRunner{}
 	parquetDir := shardDir(t, "npm-edges", 1)
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 	if err := os.WriteFile(dbPath, []byte("old database"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	runner := &fakeRunner{runHook: func(name string, args ...string) error {
+		if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+			t.Errorf("the previous database was still present when duckdb started: %v", err)
+		}
+		return os.WriteFile(dbPath, []byte("new database"), 0o644)
+	}}
 
 	if err := buildDatabase(context.Background(), runner, parquetDir, dbPath, "npm-edges", newReporter(&strings.Builder{}, 1)); err != nil {
 		t.Fatalf("buildDatabase: %v", err)
 	}
-	// CREATE TABLE would fail against a database that still has one.
-	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
-		t.Error("the previous database was not removed before the build")
+	got, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new database" {
+		t.Errorf("database contents = %q, want the newly built database", got)
 	}
 }
 

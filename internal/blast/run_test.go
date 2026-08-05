@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeCSV(t *testing.T, content string) string {
@@ -128,6 +129,131 @@ func TestFindDB(t *testing.T) {
 			t.Errorf("error = %q, want it to name the database and suggest --db", err)
 		}
 	})
+}
+
+func TestComputeBlastRadiusTraversesMatchingDependents(t *testing.T) {
+	target := PackageVersion{System: NPM, Name: "vulnerable", Version: "1.2.3"}
+	source := &fakeDependentSource{edges: map[string][]RawDependent{
+		"vulnerable": {
+			{DependentName: "direct", DependentVersion: "1.0.0", TargetName: "vulnerable", Requirement: "^1.2.0"},
+			{DependentName: "exact", DependentVersion: "1.0.0", TargetName: "vulnerable", Requirement: "1.2.3"},
+			{DependentName: "ignored", DependentVersion: "1.0.0", TargetName: "vulnerable", Requirement: "<1.0.0"},
+		},
+		"direct": {
+			{DependentName: "consumer", DependentVersion: "2.0.0", TargetName: "direct", Requirement: "^1.0.0"},
+			{DependentName: "stale", DependentVersion: "1.0.0", TargetName: "direct", Requirement: "<1.0.0"},
+			{DependentName: "vulnerable", DependentVersion: "1.2.3", TargetName: "direct", Requirement: "^1.0.0"},
+		},
+		"consumer": {
+			{DependentName: "too-deep", DependentVersion: "3.0.0", TargetName: "consumer", Requirement: "^2.0.0"},
+		},
+	}}
+
+	result, err := computeBlastRadius(NPM, []PackageVersion{target}, 2, source, io.Discard, time.Now())
+	if err != nil {
+		t.Fatalf("computeBlastRadius: %v", err)
+	}
+
+	if result.TotalEdges != 6 {
+		t.Errorf("TotalEdges = %d, want 6", result.TotalEdges)
+	}
+	if result.UniquePackages != 3 {
+		t.Errorf("UniquePackages = %d, want 3", result.UniquePackages)
+	}
+	if !reflect.DeepEqual(source.directQueries, []string{"vulnerable"}) {
+		t.Errorf("direct queries = %v, want [vulnerable]", source.directQueries)
+	}
+	if len(source.multiQueries) != 1 || !sameStringSet(source.multiQueries[0], []string{"direct", "exact"}) {
+		t.Errorf("multi queries = %v, want one query for direct and exact", source.multiQueries)
+	}
+
+	affected := affectedByKey(result.Affected)
+	for _, key := range []string{"direct@1.0.0", "exact@1.0.0", "consumer@2.0.0"} {
+		if _, ok := affected[key]; !ok {
+			t.Errorf("missing affected package %s in %+v", key, result.Affected)
+		}
+	}
+	for _, key := range []string{"ignored@1.0.0", "stale@1.0.0", "vulnerable@1.2.3", "too-deep@3.0.0"} {
+		if _, ok := affected[key]; ok {
+			t.Errorf("unexpected affected package %s in %+v", key, result.Affected)
+		}
+	}
+
+	direct := affected["direct@1.0.0"]
+	if direct.Depth != 1 || direct.Target != target {
+		t.Errorf("direct = %+v, want depth 1 and target %s", direct, target)
+	}
+	wantDirectPath := []PathStep{{Package: "direct", Version: "1.0.0", Requirement: "^1.2.0"}}
+	if !reflect.DeepEqual(direct.Path, wantDirectPath) {
+		t.Errorf("direct path = %+v, want %+v", direct.Path, wantDirectPath)
+	}
+
+	consumer := affected["consumer@2.0.0"]
+	if consumer.Depth != 2 || consumer.Target != target {
+		t.Errorf("consumer = %+v, want depth 2 and target %s", consumer, target)
+	}
+	wantConsumerPath := []PathStep{
+		{Package: "consumer", Version: "2.0.0", Requirement: "^1.0.0"},
+		{Package: "direct", Version: "1.0.0", Requirement: "^1.2.0"},
+	}
+	if !reflect.DeepEqual(consumer.Path, wantConsumerPath) {
+		t.Errorf("consumer path = %+v, want %+v", consumer.Path, wantConsumerPath)
+	}
+}
+
+type fakeDependentSource struct {
+	edges         map[string][]RawDependent
+	directQueries []string
+	multiQueries  [][]string
+}
+
+func (f *fakeDependentSource) QueryDirectDependents(name string, yield func(RawDependent) error) error {
+	f.directQueries = append(f.directQueries, name)
+	return f.yield(name, yield)
+}
+
+func (f *fakeDependentSource) QueryDependentsOfNames(names []string, yield func(RawDependent) error) error {
+	f.multiQueries = append(f.multiQueries, append([]string(nil), names...))
+	for _, name := range names {
+		if err := f.yield(name, yield); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *fakeDependentSource) yield(name string, yield func(RawDependent) error) error {
+	for _, dep := range f.edges[name] {
+		if err := yield(dep); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func affectedByKey(affected []AffectedPackage) map[string]AffectedPackage {
+	byKey := make(map[string]AffectedPackage)
+	for _, a := range affected {
+		byKey[a.String()] = a
+	}
+	return byKey
+}
+
+func sameStringSet(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	seen := make(map[string]int)
+	for _, s := range got {
+		seen[s]++
+	}
+	for _, s := range want {
+		if seen[s] == 0 {
+			return false
+		}
+		seen[s]--
+	}
+	return true
 }
 
 // affected-packages.csv, the shape a previous run writes.

@@ -261,6 +261,7 @@ type fakeRunner struct {
 	runProgress io.Writer
 	output      string
 	runErr      error
+	runHook     func(name string, args ...string) error
 }
 
 func (f *fakeRunner) record(name string, args []string) {
@@ -274,6 +275,11 @@ func (f *fakeRunner) Run(ctx context.Context, progress io.Writer, name string, a
 	f.mu.Lock()
 	f.runProgress = progress
 	f.mu.Unlock()
+	if f.runHook != nil {
+		if err := f.runHook(name, args...); err != nil {
+			return err
+		}
+	}
 	return f.runErr
 }
 

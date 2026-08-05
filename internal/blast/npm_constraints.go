@@ -46,8 +46,11 @@ func getCachedConstraint(s string) (*semver.Constraints, bool) {
 
 func npmMatches(constraintStr string, version string) bool {
 	constraintStr = strings.TrimSpace(constraintStr)
-	if constraintStr == "" || constraintStr == "*" || constraintStr == "latest" {
+	if constraintStr == "latest" {
 		return true
+	}
+	if constraintStr == "" {
+		constraintStr = "*"
 	}
 
 	if strings.HasPrefix(constraintStr, "git") ||

@@ -26,6 +26,11 @@ type Options struct {
 	Progress        io.Writer
 }
 
+type dependentSource interface {
+	QueryDirectDependents(string, func(RawDependent) error) error
+	QueryDependentsOfNames([]string, func(RawDependent) error) error
+}
+
 // ParseCompromisedCSV reads one package per line, in either of two shapes:
 //
 //	package_name;version1,version2,...    (semicolon-separated, no header)
@@ -151,12 +156,7 @@ func Run(ctx context.Context, opts Options) error {
 	system := opts.System
 	maxDepth := opts.MaxDepth
 
-	var expanded []PackageVersion
-	for _, t := range opts.Targets {
-		for _, v := range t.Versions {
-			expanded = append(expanded, PackageVersion{System: system, Name: t.Name, Version: v})
-		}
-	}
+	expanded := expandTargets(system, opts.Targets)
 
 	if len(opts.Targets) == 1 {
 		t := opts.Targets[0]
@@ -176,6 +176,48 @@ func Run(ctx context.Context, opts Options) error {
 	source, err := NewDuckDBSource(resolvedDB)
 	if err != nil {
 		return err
+	}
+
+	result, err := computeBlastRadius(system, expanded, maxDepth, source, progress, start)
+	if err != nil {
+		return err
+	}
+
+	if opts.EnrichDownloads && len(result.Affected) > 0 {
+		if !system.SupportsEnrichment() {
+			fmt.Fprintf(progress, "warning: download counts are not available for %s\n", system)
+		} else {
+			fmt.Fprintf(progress, "Enriching %d unique packages with download counts...\n", result.UniquePackages)
+			if err := Enrich(ctx, system, result.Affected, 20); err != nil {
+				fmt.Fprintf(progress, "warning: %v\n", err)
+			}
+		}
+	}
+	result.Elapsed = time.Since(start)
+
+	if err := RenderResults(result, opts.Format, opts.Top, stdout); err != nil {
+		return err
+	}
+
+	if opts.OutputDir != "" {
+		return saveArtifacts(result, opts.OutputDir, progress)
+	}
+	return nil
+}
+
+func expandTargets(system Ecosystem, targets []TargetSpec) []PackageVersion {
+	var expanded []PackageVersion
+	for _, t := range targets {
+		for _, v := range t.Versions {
+			expanded = append(expanded, PackageVersion{System: system, Name: t.Name, Version: v})
+		}
+	}
+	return expanded
+}
+
+func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth int, source dependentSource, progress io.Writer, start time.Time) (*BlastResult, error) {
+	if progress == nil {
+		progress = io.Discard
 	}
 
 	totalEdges := 0
@@ -270,12 +312,15 @@ func Run(ctx context.Context, opts Options) error {
 		}
 
 		if len(names) == 1 {
-			err = source.QueryDirectDependents(names[0], keepIfAffected)
+			err := source.QueryDirectDependents(names[0], keepIfAffected)
+			if err != nil {
+				return nil, fmt.Errorf("query at depth %d failed: %w", d+1, err)
+			}
 		} else {
-			err = source.QueryDependentsOfNames(names, keepIfAffected)
-		}
-		if err != nil {
-			return fmt.Errorf("query at depth %d failed: %w", d+1, err)
+			err := source.QueryDependentsOfNames(names, keepIfAffected)
+			if err != nil {
+				return nil, fmt.Errorf("query at depth %d failed: %w", d+1, err)
+			}
 		}
 		totalEdges += edges
 
@@ -291,17 +336,6 @@ func Run(ctx context.Context, opts Options) error {
 
 	fmt.Fprintf(progress, "\nTotal: %d affected versions (%d unique packages)\n", len(allAffected), len(uniqueNames))
 
-	if opts.EnrichDownloads && len(allAffected) > 0 {
-		if !system.SupportsEnrichment() {
-			fmt.Fprintf(progress, "warning: download counts are not available for %s\n", system)
-		} else {
-			fmt.Fprintf(progress, "Enriching %d unique packages with download counts...\n", len(uniqueNames))
-			if err := Enrich(ctx, system, allAffected, 20); err != nil {
-				fmt.Fprintf(progress, "warning: %v\n", err)
-			}
-		}
-	}
-
 	result := &BlastResult{
 		Targets:        expanded,
 		TotalEdges:     totalEdges,
@@ -311,14 +345,7 @@ func Run(ctx context.Context, opts Options) error {
 		Elapsed:        time.Since(start),
 	}
 
-	if err := RenderResults(result, opts.Format, opts.Top, stdout); err != nil {
-		return err
-	}
-
-	if opts.OutputDir != "" {
-		return saveArtifacts(result, opts.OutputDir, progress)
-	}
-	return nil
+	return result, nil
 }
 
 // reportArtifact is the JSON report the viewer reads.

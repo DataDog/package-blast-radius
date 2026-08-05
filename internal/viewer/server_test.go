@@ -245,8 +245,8 @@ func reportFixture() *blast.BlastResult {
 	}
 }
 
-// The whole point of sharing blast.JSON* between the writer and the viewer is
-// that a report the analyzer produces loads back with nothing lost.
+// The analyzer's JSON contract must load into the viewer with summary fields
+// and deduped package rows intact.
 func TestLoadRoundTripsAnAnalyzeReport(t *testing.T) {
 	path := writeReport(t, reportFixture())
 

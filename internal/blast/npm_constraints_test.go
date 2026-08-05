@@ -38,6 +38,7 @@ func TestNpmMatches(t *testing.T) {
 
 		// X-ranges / wildcards
 		{"*", "1.14.1", true},
+		{"*", "1.14.1-beta.1", false},
 		{"1.x", "1.14.1", true},
 		{"1.14.x", "1.14.1", true},
 		{"2.x", "1.14.1", false},
@@ -46,10 +47,15 @@ func TestNpmMatches(t *testing.T) {
 		{"1.0.0 - 2.0.0", "1.14.1", true},
 		{"1.0.0 - 1.14.0", "1.14.1", false},
 		{"2.0.0 - 3.0.0", "1.14.1", false},
+		{"1.2 - 2.3", "2.3.9", true},
+		{"1.2 - 2.3", "2.4.0", false},
 
 		// Special strings
 		{"", "1.14.1", true},
+		{"", "1.14.1-beta.1", false},
 		{"latest", "1.14.1", true},
+		{"next", "1.14.1", false},
+		{"beta", "1.14.1", false},
 
 		// Non-semver constraints (should return false)
 		{"git+https://github.com/foo/bar.git", "1.14.1", false},
@@ -63,6 +69,10 @@ func TestNpmMatches(t *testing.T) {
 		{">=1.0.0 <2.0.0", "0.9.0", false},
 
 		// Partial constraints: npm allows omitting minor and patch.
+		{"1", "1.2.9", true},
+		{"1", "2.0.0", false},
+		{"1.2", "1.2.9", true},
+		{"1.2", "1.3.0", false},
 		{"^1", "1.5.0", true},
 		{"^1", "2.0.0", false},
 		{"^1.2", "1.5.0", true},

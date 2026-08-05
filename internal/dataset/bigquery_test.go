@@ -178,8 +178,10 @@ func TestEdgeExportSQLIsScopedByDateAndSystem(t *testing.T) {
 		t.Errorf("SQL is missing the system filter:\n%s", sql)
 	}
 	// The self-join is what restricts the result to direct dependency edges.
-	if !strings.Contains(sql, "`From`.Name = Name") {
-		t.Errorf("SQL is missing the From self-join:\n%s", sql)
+	for _, join := range []string{"`From`.Name = Name", "`From`.Version = Version"} {
+		if !strings.Contains(sql, join) {
+			t.Errorf("SQL is missing the From self-join condition %q:\n%s", join, sql)
+		}
 	}
 }
 
