@@ -2,6 +2,7 @@ package dataset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -97,12 +98,6 @@ func edgeExportSQL(bqSystem, snapshotDate string) string {
 		snapshotDate, bqSystem)
 }
 
-func latestSnapshotSQL() string {
-	return "SELECT FORMAT_DATE('%Y-%m-%d', DATE(MAX(SnapshotAt))) AS d\n" +
-		"FROM `bigquery-public-data.deps_dev_v1.DependencyGraphEdges`\n" +
-		"WHERE SnapshotAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 14 DAY)"
-}
-
 // formatCost converts a byte count to TiB and on-demand dollars. Kept pure and
 // separate so the arithmetic is testable and locale-independent.
 func formatCost(bytes int64) (tib, usd float64) {
@@ -141,17 +136,21 @@ func (c *client) estimateBytes(ctx context.Context, projectID, sql string) (int6
 // priceAndConfirm dry-runs sql, reports what it will cost, and requires a yes
 // before the caller bills anything. When the dry run cannot produce a figure it
 // still asks, rather than proceeding silently with an unknown bill.
-func (c *client) priceAndConfirm(ctx context.Context, projectID, sql string, ask *confirmer, r *reporter, emptyScan error) error {
+// errEmptyScan reports a dry run that would read nothing. The caller knows which
+// filter is at fault and turns this into a message that names it.
+var errEmptyScan = errors.New("the query would read no data")
+
+func (c *client) priceAndConfirm(ctx context.Context, projectID, sql string, ask *confirmer, r *reporter) error {
 	bytes, err := c.estimateBytes(ctx, projectID, sql)
 	if err != nil {
 		r.field("cost", "could not be priced: %v", err)
 		return ask.confirm("Run it anyway, without knowing the cost?")
 	}
-	// These queries filter a partitioned table, so a dry run that reads nothing
+	// The query filters a partitioned table, so a dry run that reads nothing
 	// means no partition matched. Prompting would offer a free query that
 	// produces an empty export, and the mistake would only surface at the build.
-	if bytes == 0 && emptyScan != nil {
-		return emptyScan
+	if bytes == 0 {
+		return errEmptyScan
 	}
 
 	_, usd := formatCost(bytes)
@@ -284,42 +283,4 @@ func (c *client) reportJob(ctx context.Context, projectID, jobID, kind string, r
 	}
 	r.field(kind, "%s  done in %s", jobID, time.Since(start).Round(time.Second))
 	return nil
-}
-
-// queryScalar runs sql and returns the single cell of the single row it produces.
-// Used only for snapshot discovery.
-func (c *client) queryScalar(ctx context.Context, projectID, sql string) (string, error) {
-	endpoint := fmt.Sprintf("%s/projects/%s/queries", c.bigQueryURL, url.PathEscape(projectID))
-	body := map[string]any{
-		"query":        sql,
-		"useLegacySql": false,
-		"location":     datasetLocation,
-		"maxResults":   1,
-		// Long enough for a partitioned MAX() scan to finish inline.
-		"timeoutMs": 120_000,
-	}
-
-	var result struct {
-		JobComplete bool `json:"jobComplete"`
-		Rows        []struct {
-			F []struct {
-				V any `json:"v"`
-			} `json:"f"`
-		} `json:"rows"`
-		Errors []*errorProto `json:"errors"`
-	}
-	if err := c.doJSON(ctx, "POST", endpoint, body, &result); err != nil {
-		return "", err
-	}
-	if !result.JobComplete {
-		return "", fmt.Errorf("query did not complete within the timeout")
-	}
-	if len(result.Rows) == 0 || len(result.Rows[0].F) == 0 {
-		return "", fmt.Errorf("query returned no rows")
-	}
-	value, ok := result.Rows[0].F[0].V.(string)
-	if !ok || value == "" {
-		return "", fmt.Errorf("query returned no value")
-	}
-	return value, nil
 }

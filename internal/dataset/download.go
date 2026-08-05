@@ -2,6 +2,7 @@ package dataset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/DataDog/package-blast-radius/internal/blast"
 )
@@ -48,6 +50,8 @@ type Options struct {
 	storageURL  string
 	// forceInteractive lets tests drive the prompts from a non-terminal reader.
 	forceInteractive bool
+	// now fixes the clock that snapshot discovery counts back from.
+	now func() time.Time
 }
 
 func (o *Options) applyDefaults() {
@@ -65,6 +69,9 @@ func (o *Options) applyDefaults() {
 	}
 	if o.Runner == nil {
 		o.Runner = execRunner{}
+	}
+	if o.now == nil {
+		o.now = time.Now
 	}
 }
 
@@ -123,7 +130,7 @@ func Download(ctx context.Context, opts Options) error {
 	// header is printed; discovery is therefore a preamble rather than a step.
 	snapshotSource := "(given)"
 	if opts.SnapshotDate == "" {
-		date, err := discoverSnapshotDate(ctx, c, &opts, ask, r)
+		date, err := discoverSnapshotDate(ctx, c, &opts, r)
 		if err != nil {
 			return err
 		}
@@ -212,19 +219,35 @@ func newRESTClient(ctx context.Context, opts *Options) (*client, error) {
 	return c, nil
 }
 
-func discoverSnapshotDate(ctx context.Context, c *client, opts *Options, ask *confirmer, r *reporter) (string, error) {
+// snapshotSearchDays bounds how far back a snapshot is looked for. deps.dev
+// publishes daily, so the answer is normally today or yesterday.
+const snapshotSearchDays = 14
+
+// discoverSnapshotDate finds the most recent published snapshot by dry-running
+// the export query one day at a time, newest first. A dry run is free and reports
+// zero bytes when no partition matches, so this costs nothing. Asking BigQuery
+// directly with MAX(SnapshotAt) reads the timestamp column across every recent
+// partition instead, which is a real scan of about a quarter of a TiB.
+func discoverSnapshotDate(ctx context.Context, c *client, opts *Options, r *reporter) (string, error) {
 	r.section("Finding the latest deps.dev snapshot")
 
-	sql := latestSnapshotSQL()
-	if err := c.priceAndConfirm(ctx, opts.ProjectID, sql, ask, r, nil); err != nil {
-		return "", err
+	today := opts.now().UTC()
+	for daysBack := range snapshotSearchDays {
+		date := today.AddDate(0, 0, -daysBack).Format("2006-01-02")
+		sql := edgeExportSQL(opts.System.BigQuerySystem(), date)
+
+		bytes, err := c.estimateBytes(ctx, opts.ProjectID, sql)
+		if err != nil {
+			return "", fmt.Errorf("looking for a snapshot on %s: %w", date, err)
+		}
+		if bytes > 0 {
+			return date, nil
+		}
 	}
 
-	date, err := c.queryScalar(ctx, opts.ProjectID, sql)
-	if err != nil {
-		return "", fmt.Errorf("finding the latest snapshot: %w", err)
-	}
-	return date, nil
+	oldest := today.AddDate(0, 0, -(snapshotSearchDays - 1)).Format("2006-01-02")
+	return "", fmt.Errorf("no %s snapshot published between %s and %s; pass --snapshot-date to name an older one",
+		opts.System, oldest, today.Format("2006-01-02"))
 }
 
 // resolveBucket returns a usable bucket name, creating one only after asking.
@@ -308,9 +331,11 @@ func runExport(ctx context.Context, c *client, bucket, prefix string, opts *Opti
 	r.field("destination", "%s:%s.%s", dest.ProjectID, dest.DatasetID, dest.TableID)
 
 	sql := edgeExportSQL(opts.System.BigQuerySystem(), opts.SnapshotDate)
-	noSnapshot := fmt.Errorf("no %s snapshot on %s: the export query would read nothing\n"+
-		"Omit --snapshot-date to use the latest snapshot", opts.System, opts.SnapshotDate)
-	if err := c.priceAndConfirm(ctx, opts.ProjectID, sql, ask, r, noSnapshot); err != nil {
+	if err := c.priceAndConfirm(ctx, opts.ProjectID, sql, ask, r); err != nil {
+		if errors.Is(err, errEmptyScan) {
+			return fmt.Errorf("no %s snapshot on %s: the export query would read nothing\n"+
+				"Omit --snapshot-date to use the latest snapshot", opts.System, opts.SnapshotDate)
+		}
 		return err
 	}
 

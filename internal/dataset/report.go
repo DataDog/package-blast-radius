@@ -24,6 +24,9 @@ type reporter struct {
 	current int
 	total   int
 	start   time.Time
+	// wrote records whether anything has been printed, so the header can keep its
+	// blank line above it without opening the run on one.
+	wrote bool
 }
 
 func newReporter(out io.Writer, totalSteps int) *reporter {
@@ -33,6 +36,10 @@ func newReporter(out io.Writer, totalSteps int) *reporter {
 // header names the run above the first step. Each field is a "label value" pair
 // already formatted by the caller.
 func (r *reporter) header(command string, fields ...string) {
+	if r.wrote {
+		fmt.Fprintln(r.out)
+	}
+	r.wrote = true
 	fmt.Fprintf(r.out, "%s\n", command)
 	if len(fields) > 0 {
 		fmt.Fprintf(r.out, "%s\n", strings.Join(fields, "   "))
@@ -40,21 +47,25 @@ func (r *reporter) header(command string, fields ...string) {
 }
 
 func (r *reporter) step(title string) {
+	r.wrote = true
 	r.current++
 	fmt.Fprintf(r.out, "\n[%d/%d] %s\n", r.current, r.total, title)
 }
 
 // section starts a block that is not one of the numbered steps.
 func (r *reporter) section(format string, args ...any) {
+	r.wrote = true
 	fmt.Fprintf(r.out, "\n%s\n", fmt.Sprintf(format, args...))
 }
 
 func (r *reporter) line(format string, args ...any) {
+	r.wrote = true
 	fmt.Fprintf(r.out, "%s%s\n", reportIndent, fmt.Sprintf(format, args...))
 }
 
 // field prints a labelled value, aligned with the other fields in the step.
 func (r *reporter) field(label, format string, args ...any) {
+	r.wrote = true
 	fmt.Fprintf(r.out, "%s%-*s%s\n", reportIndent, reportLabelColumn, label, fmt.Sprintf(format, args...))
 }
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DataDog/package-blast-radius/internal/blast"
 )
@@ -318,17 +319,53 @@ func TestSkipBuildNeverInvokesDuckDB(t *testing.T) {
 	}
 }
 
+// Discovery walks back a day at a time until a dry run reads something. Only
+// 2026-04-11 has a partition here, so the two more recent days must be skipped.
 func TestDownloadDiscoversTheSnapshotDateWhenNotGiven(t *testing.T) {
 	f := newDownloadFixture(t)
-	f.gcp.scalarValue = "2026-04-11"
+	f.gcp.dryRunBytesFor = func(sql string) string {
+		if strings.Contains(sql, "2026-04-11") {
+			return "1440360232386"
+		}
+		return "0"
+	}
 	f.shardsAfterExport("blast-radius/2026-04-11/", 1)
 
-	if err := f.run(t, "y\ny\n", func(o *Options) { o.SnapshotDate = "" }); err != nil {
+	err := f.run(t, "y\n", func(o *Options) {
+		o.SnapshotDate = ""
+		o.now = func() time.Time { return time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC) }
+	})
+	if err != nil {
 		t.Fatalf("Download: %v", err)
 	}
 	out := f.progress.String()
 	if !strings.Contains(out, "2026-04-11") {
 		t.Errorf("the discovered snapshot date was not used:\n%s", out)
+	}
+	// Discovery must cost nothing; a dry run is not a billable job.
+	if jobs := f.gcp.billableJobs(); len(jobs) != 2 {
+		t.Errorf("ran %d billable jobs, want 2 (the export query and its extract)", len(jobs))
+	}
+}
+
+func TestDiscoverySearchesBackwardsAndThenGivesUp(t *testing.T) {
+	f := newDownloadFixture(t)
+	f.gcp.dryRunBytesFor = func(string) string { return "0" }
+
+	err := f.run(t, "y\n", func(o *Options) {
+		o.SnapshotDate = ""
+		o.now = func() time.Time { return time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC) }
+	})
+	if err == nil {
+		t.Fatal("Download succeeded with no snapshot published at all")
+	}
+	// The window it searched has to be in the message, or there is no way to
+	// tell a broken query from a genuinely stale dataset.
+	if !strings.Contains(err.Error(), "2026-03-31") || !strings.Contains(err.Error(), "2026-04-13") {
+		t.Errorf("error %q should name the window it searched", err)
+	}
+	if jobs := f.gcp.billableJobs(); len(jobs) != 0 {
+		t.Errorf("ran %d billable jobs while only probing", len(jobs))
 	}
 }
 

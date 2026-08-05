@@ -46,7 +46,10 @@ type fakeGCP struct {
 	requests []recordedRequest
 
 	// Programmable behaviour. Zero values give a working happy path.
-	dryRunBytes      string // "" means omit the field entirely
+	dryRunBytes string // "" means omit the field entirely
+	// dryRunBytesFor overrides dryRunBytes per query, which is how a test says
+	// which snapshot dates have a partition behind them.
+	dryRunBytesFor   func(sql string) string
 	dryRunStatus     int
 	bucketStatus     int    // 0 means 200
 	bucketLocation   string // "" means US
@@ -156,9 +159,15 @@ func (f *fakeGCP) handleJobInsert(w http.ResponseWriter, body map[string]any) {
 			writeGoogleError(w, f.dryRunStatus, "dry run rejected", "invalid")
 			return
 		}
+		bytes := f.dryRunBytes
+		if f.dryRunBytesFor != nil {
+			query, _ := config["query"].(map[string]any)
+			sql, _ := query["query"].(string)
+			bytes = f.dryRunBytesFor(sql)
+		}
 		stats := map[string]any{}
-		if f.dryRunBytes != "" {
-			stats["totalBytesProcessed"] = f.dryRunBytes
+		if bytes != "" {
+			stats["totalBytesProcessed"] = bytes
 		}
 		writeJSON(w, 200, map[string]any{"statistics": map[string]any{"query": stats}})
 		return

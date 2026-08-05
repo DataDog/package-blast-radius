@@ -104,7 +104,7 @@ func TestPriceAndConfirmAsksWhenPricingFails(t *testing.T) {
 	c := clientForFake(fake)
 
 	ask, out := newTestConfirmer("y\n", false)
-	err := c.priceAndConfirm(context.Background(), "proj", "SELECT 1", ask, newReporter(out, 1), nil)
+	err := c.priceAndConfirm(context.Background(), "proj", "SELECT 1", ask, newReporter(out, 1))
 	if err != nil {
 		t.Fatalf("priceAndConfirm = %v, want nil after the user said yes", err)
 	}
@@ -121,7 +121,7 @@ func TestPriceAndConfirmStopsOnRefusal(t *testing.T) {
 	c := clientForFake(fake)
 
 	ask, out := newTestConfirmer("n\n", false)
-	err := c.priceAndConfirm(context.Background(), "proj", "SELECT 1", ask, newReporter(out, 1), nil)
+	err := c.priceAndConfirm(context.Background(), "proj", "SELECT 1", ask, newReporter(out, 1))
 	if !errors.Is(err, ErrAborted) {
 		t.Fatalf("priceAndConfirm = %v, want ErrAborted", err)
 	}
@@ -199,30 +199,13 @@ func TestPriceAndConfirmRefusesAScanThatReadsNothing(t *testing.T) {
 	c := clientForFake(fake)
 
 	ask, out := newTestConfirmer("y\n", false)
-	sentinel := errors.New("no npm snapshot on 2026-08-04")
 
-	err := c.priceAndConfirm(context.Background(), "proj", "SELECT 1", ask, newReporter(out, 1), sentinel)
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("priceAndConfirm = %v, want the empty-scan error", err)
+	err := c.priceAndConfirm(context.Background(), "proj", "SELECT 1", ask, newReporter(out, 1))
+	if !errors.Is(err, errEmptyScan) {
+		t.Fatalf("priceAndConfirm = %v, want errEmptyScan", err)
 	}
 	if strings.Contains(out.String(), "Proceed?") {
 		t.Errorf("the user was asked to run a query that reads nothing:\n%s", out.String())
-	}
-}
-
-// Discovery passes no empty-scan error, because a zero-byte estimate there is not
-// evidence of a bad date.
-func TestPriceAndConfirmStillAsksForAZeroScanWithoutAnEmptyScanError(t *testing.T) {
-	fake := newFakeGCP(t)
-	fake.dryRunBytes = "0"
-	c := clientForFake(fake)
-
-	ask, out := newTestConfirmer("y\n", false)
-	if err := c.priceAndConfirm(context.Background(), "proj", "SELECT 1", ask, newReporter(out, 1), nil); err != nil {
-		t.Fatalf("priceAndConfirm = %v, want nil", err)
-	}
-	if !strings.Contains(out.String(), "Proceed?") {
-		t.Errorf("the prompt was skipped:\n%s", out.String())
 	}
 }
 
