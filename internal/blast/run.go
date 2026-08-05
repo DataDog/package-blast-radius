@@ -316,6 +316,9 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
+// reportArtifact is the JSON report the viewer reads.
+const reportArtifact = "blast-radius.json"
+
 // artifacts are written on every run so an investigation keeps its results
 // without the caller having to remember to redirect stdout.
 var artifacts = []struct {
@@ -323,7 +326,7 @@ var artifacts = []struct {
 	format string
 	unit   func(r *BlastResult) string
 }{
-	{"blast-radius.json", "json", func(r *BlastResult) string { return "feeds `blast-radius visualize`" }},
+	{reportArtifact, "json", func(r *BlastResult) string { return "full report" }},
 	{"affected-packages.csv", "affected-packages", func(r *BlastResult) string {
 		return FormatNumber(int64(r.UniquePackages)) + " packages"
 	}},
@@ -345,6 +348,9 @@ func saveArtifacts(result *BlastResult, dir string, progress io.Writer) error {
 		}
 		fmt.Fprintf(progress, "  %-22s %s\n", a.name, a.unit(result))
 	}
+
+	fmt.Fprintf(progress, "\nBrowse the results with:\n  blast-radius visualize %s\n",
+		filepath.Join(dir, reportArtifact))
 	return nil
 }
 

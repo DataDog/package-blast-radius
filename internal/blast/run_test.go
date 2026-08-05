@@ -201,6 +201,13 @@ func TestSaveArtifacts(t *testing.T) {
 		}
 	}
 
+	// The command has to be copy-pasteable, so it needs the real path rather
+	// than a placeholder.
+	wantCommand := "blast-radius visualize " + filepath.Join(dir, "blast-radius.json")
+	if !strings.Contains(progress.String(), wantCommand) {
+		t.Errorf("progress output does not give the visualize command %q:\n%s", wantCommand, progress.String())
+	}
+
 	// The JSON artifact must be byte-identical to what --output json prints,
 	// since that is what `visualize` consumes.
 	var stdout bytes.Buffer
