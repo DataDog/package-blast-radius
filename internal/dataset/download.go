@@ -1,0 +1,402 @@
+package dataset
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/DataDog/package-blast-radius/internal/blast"
+)
+
+// Options configures a dataset download. Zero values are filled in with the
+// conventional defaults, so only System and ProjectID are normally required.
+type Options struct {
+	System    blast.Ecosystem
+	ProjectID string
+	// Bucket may be "gs://name" or "name". Empty derives <project>-blast-radius.
+	Bucket string
+	// SnapshotDate is a deps.dev snapshot as YYYY-MM-DD. Empty discovers the latest.
+	SnapshotDate string
+	// DataDir holds parquet/ and the built database. Empty means "data".
+	DataDir string
+	// ParquetDir overrides where shards are read from or written to.
+	ParquetDir string
+	// DatasetID is the BigQuery dataset holding the intermediate table.
+	DatasetID string
+
+	AutoApprove bool
+	Force       bool
+	KeepParquet bool
+	// BuildOnly skips every cloud step and builds the database from local shards.
+	BuildOnly bool
+	// SkipBuild downloads the shards but leaves the database alone.
+	SkipBuild bool
+
+	Stdin    io.Reader
+	Progress io.Writer
+
+	// HTTPClient and Runner are injected by tests; nil means the real thing.
+	HTTPClient *http.Client
+	Runner     Runner
+	// bigQueryURL and storageURL let tests point at an httptest.Server.
+	bigQueryURL string
+	storageURL  string
+	// forceInteractive lets tests drive the prompts from a non-terminal reader.
+	forceInteractive bool
+}
+
+func (o *Options) applyDefaults() {
+	if o.DataDir == "" {
+		o.DataDir = "data"
+	}
+	if o.DatasetID == "" {
+		o.DatasetID = "blast_radius"
+	}
+	if o.Stdin == nil {
+		o.Stdin = os.Stdin
+	}
+	if o.Progress == nil {
+		o.Progress = os.Stderr
+	}
+	if o.Runner == nil {
+		o.Runner = execRunner{}
+	}
+}
+
+// parquetDir resolves where shards live. An explicit --parquet-dir wins;
+// otherwise shards are scoped by snapshot date so two exports never mix, falling
+// back to the unscoped directory when no date is known (which is how a
+// --build-only run finds shards downloaded by an older version).
+func (o *Options) parquetDir() string {
+	if o.ParquetDir != "" {
+		return o.ParquetDir
+	}
+	if o.SnapshotDate != "" {
+		return filepath.Join(o.DataDir, "parquet", o.SnapshotDate)
+	}
+	return filepath.Join(o.DataDir, "parquet")
+}
+
+func (o *Options) dbPath() string {
+	return filepath.Join(o.DataDir, o.System.DBName())
+}
+
+// Download exports the dependency graph for opts.System and builds a DuckDB
+// database from it. Every billed query and every mutation of cloud state is
+// confirmed interactively first, unless AutoApprove is set.
+func Download(ctx context.Context, opts Options) error {
+	opts.applyDefaults()
+
+	if !opts.System.SupportsDatasetDownload() {
+		return fmt.Errorf("no BigQuery dataset export is configured for %s", opts.System)
+	}
+
+	r := newReporter(opts.Progress, opts.countSteps())
+	ask := newConfirmer(opts.Stdin, opts.Progress, opts.AutoApprove)
+	if opts.forceInteractive {
+		ask.interactive = true
+	}
+
+	if err := preflight(&opts); err != nil {
+		return err
+	}
+
+	ecosystem := strings.ToLower(string(opts.System))
+
+	if opts.BuildOnly {
+		r.header("blast-radius download-data "+ecosystem+" --build-only",
+			"shards "+opts.parquetDir())
+		return buildAndReport(ctx, &opts, r)
+	}
+
+	c, err := newRESTClient(ctx, &opts)
+	if err != nil {
+		return err
+	}
+
+	// The snapshot date belongs in the header, so it has to be known before the
+	// header is printed; discovery is therefore a preamble rather than a step.
+	snapshotSource := "(given)"
+	if opts.SnapshotDate == "" {
+		date, err := discoverSnapshotDate(ctx, c, &opts, ask, r)
+		if err != nil {
+			return err
+		}
+		opts.SnapshotDate = date
+		snapshotSource = "(latest)"
+	}
+
+	r.header("blast-radius download-data "+ecosystem,
+		"project "+opts.ProjectID,
+		"snapshot "+opts.SnapshotDate+" "+snapshotSource)
+
+	bucket, err := resolveBucket(ctx, c, &opts, ask, r)
+	if err != nil {
+		return err
+	}
+
+	prefix := fmt.Sprintf("blast-radius/%s/", opts.SnapshotDate)
+	if err := runExport(ctx, c, bucket, prefix, &opts, ask, r); err != nil {
+		return err
+	}
+
+	if err := fetchShards(ctx, c, bucket, prefix, &opts, r); err != nil {
+		return err
+	}
+
+	if opts.SkipBuild {
+		r.section("Shards are in %s", opts.parquetDir())
+		r.line("build the database with: blast-radius download-data %s --build-only --snapshot-date %s",
+			ecosystem, opts.SnapshotDate)
+		return nil
+	}
+	return buildAndReport(ctx, &opts, r)
+}
+
+// countSteps decides the denominator in the [n/m] labels up front, so a step that
+// this run skips never leaves a gap in the numbering.
+func (o *Options) countSteps() int {
+	if o.BuildOnly {
+		return 1
+	}
+	steps := 3 // bucket, export, download
+	if !o.SkipBuild {
+		steps++
+	}
+	return steps
+}
+
+// preflight fails on missing local tooling before anything billable happens.
+// The bash version this replaces discovered a missing gcloud only after the
+// ~$8 query had already run.
+func preflight(opts *Options) error {
+	var problems []string
+
+	if !opts.SkipBuild {
+		if _, err := exec.LookPath("duckdb"); err != nil {
+			problems = append(problems, "duckdb CLI not found in PATH (install with: brew install duckdb)")
+		}
+	}
+	if !opts.BuildOnly && opts.ProjectID == "" {
+		problems = append(problems, "no GCP project given (pass --project)")
+	}
+
+	if len(problems) > 0 {
+		return fmt.Errorf("cannot start:\n  - %s", strings.Join(problems, "\n  - "))
+	}
+	return nil
+}
+
+func newRESTClient(ctx context.Context, opts *Options) (*client, error) {
+	httpClient := opts.HTTPClient
+	if httpClient == nil {
+		authed, err := newAuthedClient(ctx)
+		if err != nil {
+			return nil, err
+		}
+		httpClient = authed
+	}
+
+	c := newClient(httpClient)
+	if opts.bigQueryURL != "" {
+		c.bigQueryURL = opts.bigQueryURL
+	}
+	if opts.storageURL != "" {
+		c.storageURL = opts.storageURL
+	}
+	return c, nil
+}
+
+func discoverSnapshotDate(ctx context.Context, c *client, opts *Options, ask *confirmer, r *reporter) (string, error) {
+	r.section("Finding the latest deps.dev snapshot")
+
+	sql := latestSnapshotSQL()
+	if err := c.priceAndConfirm(ctx, opts.ProjectID, sql, ask, r, nil); err != nil {
+		return "", err
+	}
+
+	date, err := c.queryScalar(ctx, opts.ProjectID, sql)
+	if err != nil {
+		return "", fmt.Errorf("finding the latest snapshot: %w", err)
+	}
+	return date, nil
+}
+
+// resolveBucket returns a usable bucket name, creating one only after asking.
+func resolveBucket(ctx context.Context, c *client, opts *Options, ask *confirmer, r *reporter) (string, error) {
+	r.step("Bucket")
+
+	raw := opts.Bucket
+	if raw == "" {
+		raw = opts.ProjectID + "-blast-radius"
+	}
+	bucket, err := parseBucketURI(raw)
+	if err != nil {
+		return "", err
+	}
+
+	location, err := c.bucketLocation(ctx, bucket)
+	switch {
+	case err == nil:
+		r.line("gs://%s exists in %s", bucket, location)
+		// An extract job requires the bucket to share the dataset's region, and
+		// the failure it produces otherwise names neither side.
+		if !strings.EqualFold(location, datasetLocation) {
+			return "", fmt.Errorf("gs://%s is in %s, but the deps.dev dataset is in %s and an extract job needs both to match\n"+
+				"Pass a %s bucket with --bucket, or omit it to create one",
+				bucket, location, datasetLocation, datasetLocation)
+		}
+		return bucket, nil
+
+	case isNotFound(err):
+		r.line("gs://%s does not exist", bucket)
+		if err := ask.confirm(fmt.Sprintf("Create it in %s?", datasetLocation)); err != nil {
+			return "", err
+		}
+		if err := c.createBucket(ctx, opts.ProjectID, bucket); err != nil {
+			return "", err
+		}
+		r.line("created")
+		return bucket, nil
+
+	default:
+		// A 403 is a permissions problem, not an absent bucket, and silently
+		// trying to create it would report the wrong cause.
+		return "", fmt.Errorf("checking gs://%s: %w", bucket, err)
+	}
+}
+
+// ensurePrefixIsClear refuses to export on top of an earlier run's shards, which
+// the wildcard download would otherwise merge into one corrupt local dataset.
+func ensurePrefixIsClear(ctx context.Context, c *client, bucket, prefix string, opts *Options, ask *confirmer, r *reporter) error {
+	existing, err := c.listPrefix(ctx, bucket, prefix)
+	if err != nil {
+		return err
+	}
+	if len(existing) == 0 {
+		return nil
+	}
+
+	r.field("stale", "gs://%s/%s already contains %d objects", bucket, prefix, len(existing))
+	for _, obj := range existing[:min(5, len(existing))] {
+		r.line("  %s", obj.Name)
+	}
+	if !opts.Force {
+		return fmt.Errorf("refusing to export on top of %d existing objects; re-run with --force to delete them first", len(existing))
+	}
+	if err := ask.confirm(fmt.Sprintf("Delete all %d objects under gs://%s/%s?", len(existing), bucket, prefix)); err != nil {
+		return err
+	}
+	return c.deleteObjects(ctx, bucket, existing, r)
+}
+
+func runExport(ctx context.Context, c *client, bucket, prefix string, opts *Options, ask *confirmer, r *reporter) error {
+	tableID := strings.ReplaceAll(opts.System.ParquetPrefix(), "-", "_")
+	dest := &tableRef{ProjectID: opts.ProjectID, DatasetID: opts.DatasetID, TableID: tableID}
+
+	r.step("Export query")
+
+	if err := ensurePrefixIsClear(ctx, c, bucket, prefix, opts, ask, r); err != nil {
+		return err
+	}
+
+	r.field("destination", "%s:%s.%s", dest.ProjectID, dest.DatasetID, dest.TableID)
+
+	sql := edgeExportSQL(opts.System.BigQuerySystem(), opts.SnapshotDate)
+	noSnapshot := fmt.Errorf("no %s snapshot on %s: the export query would read nothing\n"+
+		"Omit --snapshot-date to use the latest snapshot", opts.System, opts.SnapshotDate)
+	if err := c.priceAndConfirm(ctx, opts.ProjectID, sql, ask, r, noSnapshot); err != nil {
+		return err
+	}
+
+	if err := c.ensureDataset(ctx, opts.ProjectID, opts.DatasetID); err != nil {
+		return err
+	}
+	if err := c.runQueryToTable(ctx, opts.ProjectID, sql, dest, r); err != nil {
+		return err
+	}
+
+	destURI := fmt.Sprintf("gs://%s/%s%s-*.parquet", bucket, prefix, opts.System.ParquetPrefix())
+	if err := c.extractToGCS(ctx, opts.ProjectID, dest, destURI, r); err != nil {
+		return err
+	}
+	r.field("wrote", "%s", destURI)
+	return nil
+}
+
+func fetchShards(ctx context.Context, c *client, bucket, prefix string, opts *Options, r *reporter) error {
+	objects, err := c.listPrefix(ctx, bucket, prefix)
+	if err != nil {
+		return err
+	}
+	if len(objects) == 0 {
+		return fmt.Errorf("the extract job reported success but gs://%s/%s is empty", bucket, prefix)
+	}
+
+	destDir := opts.parquetDir()
+	r.step("Download")
+	r.line("%d shards to %s", len(objects), destDir)
+	return c.downloadObjects(ctx, bucket, objects, destDir, r)
+}
+
+func buildAndReport(ctx context.Context, opts *Options, r *reporter) error {
+	if opts.SkipBuild {
+		return nil
+	}
+
+	parquetDir := opts.parquetDir()
+	dbPath := opts.dbPath()
+
+	r.step("Build")
+	if err := buildDatabase(ctx, opts.Runner, parquetDir, dbPath, opts.System.ParquetPrefix(), r); err != nil {
+		return err
+	}
+
+	rows, err := countRows(ctx, opts.Runner, dbPath)
+	if err != nil {
+		return fmt.Errorf("database built but its row count could not be read: %w", err)
+	}
+
+	size := int64(0)
+	if info, err := os.Stat(dbPath); err == nil {
+		size = info.Size()
+	}
+
+	r.section("Done in %s", r.elapsed())
+	r.field("database", "%s", dbPath)
+	r.field("rows", "%s", blast.FormatNumber(rows))
+	r.field("size", "%s", humanBytes(size))
+
+	if !opts.KeepParquet && !opts.BuildOnly {
+		if err := removeShards(parquetDir, opts.System.ParquetPrefix()); err != nil {
+			r.field("shards", "kept in %s: %v", parquetDir, err)
+		} else {
+			r.field("shards", "removed from %s (--keep-parquet keeps them)", parquetDir)
+		}
+	}
+
+	r.section("Next")
+	r.line("blast-radius analyze %s <package> <version>", strings.ToLower(string(opts.System)))
+	return nil
+}
+
+// removeShards deletes only the shards this tool wrote, leaving anything else in
+// the directory alone.
+func removeShards(parquetDir, parquetPrefix string) error {
+	shards, err := filepath.Glob(filepath.Join(parquetDir, parquetPrefix+"-*.parquet"))
+	if err != nil {
+		return err
+	}
+	for _, shard := range shards {
+		if err := os.Remove(shard); err != nil {
+			return err
+		}
+	}
+	os.Remove(parquetDir) // Only succeeds if it is now empty, which is the intent.
+	return nil
+}

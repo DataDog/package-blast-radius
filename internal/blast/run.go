@@ -325,10 +325,10 @@ var artifacts = []struct {
 }{
 	{"blast-radius.json", "json", func(r *BlastResult) string { return "feeds `blast-radius visualize`" }},
 	{"affected-packages.csv", "affected-packages", func(r *BlastResult) string {
-		return formatNumber(int64(r.UniquePackages)) + " packages"
+		return FormatNumber(int64(r.UniquePackages)) + " packages"
 	}},
 	{"paths.csv", "csv", func(r *BlastResult) string {
-		return formatNumber(int64(len(r.Affected))) + " rows"
+		return FormatNumber(int64(len(r.Affected))) + " rows"
 	}},
 }
 

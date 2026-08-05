@@ -5,3 +5,4 @@ output/
 *.csv
 *.json
 *.json.gz
+*.html

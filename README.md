@@ -1,13 +1,17 @@
-# blast-radius
+# Investigate the blast radius of compromised npm packages
 
-Find all public packages affected by a compromised npm dependency.
+`blast-radius` helps you analyze the blast radius of a compromised dependency. When a legitimate package gets compromised (for instance, [axios](https://securitylabs.datadoghq.com/articles/axios-npm-supply-chain-compromise/) versions 1.14.1 and 0.30.4), it's challenging to answer the question: "**Which npm packages, if installed during the compromission window, would have led to the malicious package being installed?**
 
-Given a package name and version (even if yanked), finds all packages whose declared version range **could resolve** to it. This project uses a local snapshot of the [deps.dev](https://deps.dev) dependency graph made available for Google through a BigQuery public dataset.
+Given a package name and version (even if yanked), `blast-radius` finds all packages whose declared version range could resolve to it. This project uses a local snapshot of the [deps.dev](https://deps.dev) dependency graph made available for Google through a BigQuery public dataset.
+
+## Sample usage
+
+In July 2026, version 3.3.1 of the `@asyncapi/generator` package was compromised. Using `blast-radius`, we can find all transitive dependencies of this package that don't lock versions and could end up installing the malicious package.
 
 ```
-$ blast-radius analyze npm @asyncapi/generator 3.3.1 --db ./data/npm-deps-old-removeme.duckdb --enrich-with-download-count --depth 2
+$ blast-radius analyze npm @asyncapi/generator 3.3.1  --depth 10 --enrich-with-download-count
 
-Computing blast radius for @asyncapi/generator@3.3.1 (NPM), depth=2
+Computing blast radius for @asyncapi/generator@3.3.1 (NPM), depth=10
 
 Depth 1: querying dependents of 1 package(s)...
 Depth 1: got 1459 edges, filtering by version range...
@@ -15,6 +19,8 @@ Depth 1: found 89 new affected packages
 Depth 2: querying dependents of 8 package(s)...
 Depth 2: got 93 edges, filtering by version range...
 Depth 2: found 93 new affected packages
+Depth 3: got 0 edges, filtering by version range...
+Depth 3: found 0 new affected packages
 
 Total: 182 affected versions (10 unique packages)
 Enriching 10 unique packages with download counts...
@@ -22,7 +28,7 @@ Enriching 10 unique packages with download counts...
 Blast radius for @asyncapi/generator@3.3.1 (NPM)
 Total dependency edges scanned: 1,552
 Affected: 182 versions (10 unique packages)
-Max depth: 2 | Took 1.2s
+Max depth: 10 | Took 1.2s
 
 PACKAGE                                                      VERSION  DEPTH  DOWNLOADS/wk  PATH
 @asyncapi/cli                                                5.0.5    1      55,458        @asyncapi/cli@5.0.5 ──(^3.0.1)──▶ @asyncapi/generator@3.3.1
@@ -42,13 +48,14 @@ Saved to output/2026-08-05_160650/
   paths.csv              182 rows
 ```
 
+You can then use `blast-radius visualize output/2026-08-05_160650/blast-radius.json` to visualize affected packages.
+
 
 ## How it works
 
-1. Queries a local DuckDB database containing all npm direct dependency edges (package → dependency + version range)
-2. Filters edges where the declared semver range includes the target version (e.g., `^1.6.1` matches `1.14.1`)
-3. Optionally enriches results with weekly download counts from the npm API (`--enrich-with-download-count`, off by default)
-4. Outputs sorted by impact (downloads), and saves the full results to `output/<timestamp>/`
+1. Pulls the [deps.dev BigQuery dataset](https://docs.deps.dev/bigquery/v1/) to local Parquet files and imports them into a local DuckDB database (single file), containing all npm direct dependency edges (package → dependency + version range).
+2. Queries the database, filtering edges where the declared version range includes the target version (e.g., `^1.6.1` matches `1.14.1`)
+3. Optionally enriches results with weekly download counts from the npm API (`--enrich-with-download-count`, disabled by default)
 
 This works even for **yanked/removed versions** because we check the declared range, not what the registry currently resolves to.
 
@@ -57,168 +64,125 @@ This works even for **yanked/removed versions** because we check the declared ra
 ### Prerequisites
 
 - Go 1.25+
-- [DuckDB CLI](https://duckdb.org/docs/installation/): `brew install duckdb`
-- For data export: `gcloud` CLI with BigQuery access
+- The [DuckDB CLI](https://duckdb.org/docs/installation/) must be installed (`brew install duckdb` on macOS)
+- You must have access to a Google Cloud account and be authenticated using `gcloud auth login --update-adc`
 
-### Build the CLI
+### Overview of the `blast-radius` CLI
+
+A single binary provides all three subcommands:
+
+| command | purpose |
+| --- | --- |
+| `blast-radius download-data` | export the dependency graph from BigQuery and build the local database |
+| `blast-radius analyze` | compute the blast radius of one or more compromised versions |
+| `blast-radius visualize` | browse a generated JSON report in a local web UI |
+
+### Step 1: Get the data
+
+The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](https://docs.deps.dev/bigquery/v1/). First, you need to download the data using `blast-radius download-data`. This is a one-time operation that you won't need to repeat for every analysis. It will persist around 20 GB of files on your machine, make sure you have enough disk space available.
+
+`blast-radius download-data` will:
+- create a BigQuery table in your Google Cloud project (around 20 GB, expected monthly cost < $1)
+- query the BigQuery table and export it (one-time cost ~$10)
+- export the data as Parquet files into a Google Cloud Storage (GCS) bucket (around 10 GB, expected monthly cost < $1)
+- download the Parquet files to your machine locally
+- build a local DuckDB instance (single, self-contained file) from it
+- remove the Parquet files from your machine
+
+
+The command typically takes 20-30 minutes to complete. Usage:
+
+
+```bash
+blast-radius download-data npm --project <your-gcp-project>
+```
+
+Sample output:
+
+```
+project dd-security-research   snapshot 2026-08-03 (latest)
+
+[1/4] Bucket
+      gs://dd-security-research-blast-radius does not exist
+      Create it in US? [y/N] y
+      created
+
+[2/4] Export query
+      destination  dd-security-research:blast_radius.npm_edges
+      scan size    1.39 TiB
+      cost         ~$8.69   on-demand, $6.25/TiB
+      Proceed? [y/N] y
+      query        job_3WAX65RHz6AgedIZTvcpBaUjwfu1  done in 16s
+      extract      job_qf_SPET85Tr74pPddnQqmOEg0akh  done in 6s
+      wrote        gs://dd-security-research-blast-radius/blast-radius/2026-08-03/npm-edges-*.parquet
+
+[3/4] Download
+      1000 shards to data/parquet/2026-08-03
+       200/1000    2.1 GB
+       ...
+      1000/1000   10.1 GB   in 1m12s
+
+[4/4] Build
+      data/npm-deps.duckdb from 1000 shards, this takes several minutes
+      still building, 30s elapsed
+      done in 1m47s
+
+Done in 3m41s
+      database     data/npm-deps.duckdb
+      rows         419,092,480
+      size         18.3 GB
+      shards       removed from data/parquet/2026-08-03 (--keep-parquet keeps them)
+
+Next
+      blast-radius analyze npm <package> <version>
+```
+
+### Step 2: Analyze the data
+
+Sample usage:
+
+```bash
+blast-radius analyze npm axios 1.14.1
+
+# Rank by weekly download counts (slower, might hit rate limits if the result count is high)
+blast-radius analyze npm axios 1.14.1 --enrich-with-download-count
+
+# Find transitive dependencies up to a depth of 5
+blast-radius analyze npm axios 1.14.1 --depth 5
+
+# Multiple compromised versions
+blast-radius analyze npm axios --versions 1.14.1,0.30.0
+
+# Many compromised packages at once via a CSV.
+cat > compromised.csv <<'EOF'
+axios;1.14.1,0.30.4
+lodash;4.17.20,4.17.21
+EOF
+blast-radius analyze npm --csv compromised.csv --depth 3
+```
+
+Every run writes its full results to `output/<YYYY-MM-DD_HHMMSS>/`.
+
+| file | contents |
+| --- | --- |
+| `blast-radius.json` | the full report |
+| `affected-packages.csv` | `package_name,vulnerable_versions`, one row per unique package |
+| `paths.csv` | one row per affected version, with depth, downloads, target and path |
+
+### Step 3: Visualize the data
+
+Run the following command to spin up a graphical interface to explore the data:
+
+```bash
+blast-radius visualize output/2026-08-05_160650/blast-radius.json
+```
+
+
+## Development
 
 ```bash
 make            # builds bin/blast-radius
 make test       # run the unit tests
 make vet        # run go vet
 make clean      # remove bin/
-```
-
-A single binary provides both subcommands:
-
-| command | purpose |
-| --- | --- |
-| `blast-radius analyze` | compute the blast radius of one or more compromised versions |
-| `blast-radius visualize` | browse a generated JSON report in a local web UI |
-
-### Get the data
-
-The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](https://docs.deps.dev/bigquery/v1/). Export it once:
-
-```bash
-# Step 1: Export from BigQuery to parquet files.
-# Prices the query with a dry run and asks before spending anything.
-# The bucket is optional and defaults to gs://<project>-blast-radius, created if missing.
-./scripts/export-from-bigquery.sh <your-gcp-project> [gs://your-bucket] [snapshot-date]
-
-# Step 2: Build the indexed DuckDB database from the path the export printed
-./scripts/build-duckdb.sh data/parquet/<snapshot-date>
-```
-
-This produces `data/npm-deps.duckdb` (~19 GB, 419M edges covering all of npm).
-
-## Usage
-
-### `analyze`
-
-```bash
-# Basic usage (looks for npm-deps.duckdb in ./data/)
-./bin/blast-radius analyze npm axios 1.14.1
-
-# Specify database path
-./bin/blast-radius analyze npm axios 1.14.1 --db data/npm-deps.duckdb
-
-# Rank by weekly download counts (slow, ~3min vs ~20s, requires network)
-./bin/blast-radius analyze npm axios 1.14.1 --enrich-with-download-count
-
-# Transitive dependents (depth 2 = packages that depend on packages that depend on axios)
-./bin/blast-radius analyze npm axios 1.14.1 --depth 2
-
-# Multiple compromised versions
-./bin/blast-radius analyze npm axios --versions 1.14.1,0.30.0
-
-# Many compromised packages at once via a CSV.
-# Each line: package_name;version1,version2,...
-# Lines starting with '#' and blank lines are ignored.
-cat > compromised.csv <<'EOF'
-axios;1.14.1,0.30.4
-lodash;4.17.20,4.17.21
-EOF
-./bin/blast-radius analyze npm --csv compromised.csv --depth 3
-
-# An affected-packages.csv from a previous run is also valid input, so one
-# run's results can become the next run's targets.
-./bin/blast-radius analyze npm --csv output/2026-08-05_154305/affected-packages.csv
-
-# Show more/fewer results
-./bin/blast-radius analyze npm axios 1.14.1 --top 100
-./bin/blast-radius analyze npm axios 1.14.1 --top 0        # show all
-
-# Choose what goes to stdout (the saved files are written either way)
-./bin/blast-radius analyze npm axios 1.14.1 --output json
-./bin/blast-radius analyze npm axios 1.14.1 --output csv > affected.csv
-
-# Save somewhere specific, or not at all
-./bin/blast-radius analyze npm axios 1.14.1 --output-dir /tmp/axios-run
-./bin/blast-radius analyze npm axios 1.14.1 --no-save
-```
-
-#### Saved results
-
-Every run writes its full results to `output/<YYYY-MM-DD_HHMMSS>/` (gitignored), so nothing is lost when the table is truncated to `--top`:
-
-| file | contents |
-| --- | --- |
-| `blast-radius.json` | the full report, and the input to `blast-radius visualize` |
-| `affected-packages.csv` | `package_name,vulnerable_versions`, one row per unique package |
-| `paths.csv` | one row per affected version, with depth, downloads, target and path |
-
-These are large: a depth-1 `axios` run produces ~400 MB of JSON and ~150 MB of CSV.
-
-### `visualize`
-
-A local web UI for exploring large JSON outputs. It provides filtering, sorting, pagination, CSV export, and a visual dependency path graph for each package.
-
-```bash
-# Every analyze run already saves the JSON the viewer needs
-./bin/blast-radius analyze npm axios 1.14.1 --depth 2
-./bin/blast-radius visualize output/2026-08-05_154305/blast-radius.json
-
-# Opens at http://127.0.0.1:8080; override with --port
-```
-
-The server loads and deduplicates the JSON on startup (handles files up to ~1 GB), then serves a paginated API to the browser. Click any package name to see the full dependency path to the compromised target.
-
-## Refreshing the data
-
-The snapshot is a point-in-time export from the [deps.dev BigQuery public dataset](https://docs.deps.dev/bigquery/v1/).
-
-### Option A: Automated (script)
-
-```bash
-# Query BigQuery, save to a table, export to GCS, download the parquet shards.
-# Add -y to skip the cost confirmation, --force to overwrite a previous export
-# of the same snapshot date.
-./scripts/export-from-bigquery.sh <your-gcp-project>
-./scripts/build-duckdb.sh data/parquet/<snapshot-date>
-```
-
-Both the GCS prefix and the local download directory are scoped by snapshot date, so re-running for a new snapshot never mixes shards from two exports.
-
-### Option B: Manual (BigQuery UI + CLI)
-
-**Step 1** — Run the query in the [BigQuery console](https://console.cloud.google.com/bigquery), saving the result to a destination table (Query Settings > Set a destination table):
-
-```sql
-SELECT Name, Version, `To`.Name AS DepName, Requirement
-FROM `bigquery-public-data.deps_dev_v1.DependencyGraphEdges`
-WHERE DATE(SnapshotAt) = '<snapshot-date>'
-  AND System = 'NPM'
-  AND `From`.Name = Name AND `From`.Version = Version
-```
-
-**Step 2** — Export the table to GCS as sharded parquet (the UI export doesn't support wildcards, so use the CLI):
-
-```bash
-bq extract \
-  --destination_format=PARQUET \
-  --compression=SNAPPY \
-  'your-project:your_dataset.your_table' \
-  'gs://your-bucket/path/npm-edges-*.parquet'
-```
-
-**Step 3** — Download and build the DuckDB database:
-
-```bash
-mkdir -p data/parquet/<snapshot-date>
-gcloud storage cp 'gs://your-bucket/path/*.parquet' data/parquet/<snapshot-date>/
-./scripts/build-duckdb.sh data/parquet/<snapshot-date>
-```
-
-### Cost and snapshot dates
-
-This scans ~1.3 TB per snapshot (~$8 at BigQuery's $6.25/TiB rate). The script prices each query with a dry run and asks for confirmation before spending anything, so you see the real figure rather than this estimate. The table is partitioned by `SnapshotAt`, so filtering by date keeps the cost low. Without the date filter, a full scan is ~166 TB.
-
-Find available snapshot dates with:
-
-```sql
-SELECT DISTINCT DATE(SnapshotAt) as snapshot_date
-FROM `bigquery-public-data.deps_dev_v1.DependencyGraphEdges`
-WHERE SnapshotAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
-ORDER BY snapshot_date DESC
 ```

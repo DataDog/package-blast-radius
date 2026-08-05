@@ -93,10 +93,10 @@ func renderTable(result *BlastResult, deduped []AffectedPackage, top int, w io.W
 		system = string(result.Targets[0].System)
 	}
 	fmt.Fprintf(w, "\nBlast radius for %s (%s)\n", targetsLabel(result.Targets), system)
-	fmt.Fprintf(w, "Total dependency edges scanned: %s\n", formatNumber(int64(result.TotalEdges)))
+	fmt.Fprintf(w, "Total dependency edges scanned: %s\n", FormatNumber(int64(result.TotalEdges)))
 	fmt.Fprintf(w, "Affected: %s versions (%s unique packages)\n",
-		formatNumber(int64(len(result.Affected))),
-		formatNumber(int64(result.UniquePackages)))
+		FormatNumber(int64(len(result.Affected))),
+		FormatNumber(int64(result.UniquePackages)))
 	fmt.Fprintf(w, "Max depth: %d | Took %s\n\n", result.MaxDepth, result.Elapsed.Round(100*millisecond))
 
 	if len(deduped) == 0 {
@@ -122,7 +122,7 @@ func renderTable(result *BlastResult, deduped []AffectedPackage, top int, w io.W
 	for _, a := range display {
 		downloads := "-"
 		if a.WeeklyDownloads >= 0 {
-			downloads = formatNumber(a.WeeklyDownloads)
+			downloads = FormatNumber(a.WeeklyDownloads)
 		}
 		row := []any{a.Name, a.Version, a.Depth, downloads}
 		if multiTarget {
@@ -136,7 +136,7 @@ func renderTable(result *BlastResult, deduped []AffectedPackage, top int, w io.W
 
 	if top > 0 && len(deduped) > top {
 		fmt.Fprintf(w, "\n... and %s more unique packages (use --top 0 for all, or --output csv)\n",
-			formatNumber(int64(len(deduped)-top)))
+			FormatNumber(int64(len(deduped)-top)))
 	}
 
 	return nil
@@ -292,7 +292,9 @@ func compareVersionStrings(a, b string) int {
 
 const millisecond = 1000000
 
-func formatNumber(n int64) string {
+// FormatNumber groups digits with commas. Row and edge counts here run into the
+// hundreds of millions, which are unreadable otherwise.
+func FormatNumber(n int64) string {
 	if n < 1000 {
 		return fmt.Sprintf("%d", n)
 	}

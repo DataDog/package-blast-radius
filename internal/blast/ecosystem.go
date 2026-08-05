@@ -21,14 +21,21 @@ type ecosystemInfo struct {
 	dbName  string
 	matches func(constraint, version string) bool
 	enrich  func(ctx context.Context, affected []AffectedPackage, workers int) error // nil if unsupported
+	// bqSystem is the System value in the deps.dev BigQuery dataset. Empty means
+	// no dataset export exists, so 'download-data' rejects the ecosystem.
+	bqSystem string
+	// parquetPrefix names the exported shards: "npm-edges" -> npm-edges-*.parquet.
+	parquetPrefix string
 }
 
 var ecosystems = map[Ecosystem]ecosystemInfo{
 	NPM: {
-		cliName: "npm",
-		dbName:  "npm-deps.duckdb",
-		matches: npmMatches,
-		enrich:  enrichNPMDownloads,
+		cliName:       "npm",
+		dbName:        "npm-deps.duckdb",
+		matches:       npmMatches,
+		enrich:        enrichNPMDownloads,
+		bqSystem:      "NPM",
+		parquetPrefix: "npm-edges",
 	},
 }
 
@@ -56,6 +63,22 @@ func SupportedEcosystems() []string {
 // DBName is the conventional filename of this ecosystem's DuckDB snapshot.
 func (e Ecosystem) DBName() string {
 	return ecosystems[e].dbName
+}
+
+// BigQuerySystem is this ecosystem's System value in the deps.dev dataset.
+func (e Ecosystem) BigQuerySystem() string {
+	return ecosystems[e].bqSystem
+}
+
+// ParquetPrefix is the basename of this ecosystem's exported parquet shards.
+func (e Ecosystem) ParquetPrefix() string {
+	return ecosystems[e].parquetPrefix
+}
+
+// SupportsDatasetDownload reports whether the dependency graph for this
+// ecosystem can be exported from the deps.dev BigQuery dataset.
+func (e Ecosystem) SupportsDatasetDownload() bool {
+	return ecosystems[e].bqSystem != ""
 }
 
 // MatchesVersion reports whether version satisfies the declared dependency

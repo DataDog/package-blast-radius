@@ -188,8 +188,8 @@ func TestFormatNumber(t *testing.T) {
 		1000000000: "1,000,000,000",
 	}
 	for in, want := range tests {
-		if got := formatNumber(in); got != want {
-			t.Errorf("formatNumber(%d) = %q, want %q", in, got, want)
+		if got := FormatNumber(in); got != want {
+			t.Errorf("FormatNumber(%d) = %q, want %q", in, got, want)
 		}
 	}
 }

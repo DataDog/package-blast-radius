@@ -58,6 +58,12 @@ func TestEveryEcosystemIsFullyConfigured(t *testing.T) {
 		if info.matches == nil {
 			t.Errorf("%s has no version matcher", eco)
 		}
+		// A BigQuery export is optional, but half of one produces shards the
+		// duckdb build glob would never find.
+		if (info.bqSystem == "") != (info.parquetPrefix == "") {
+			t.Errorf("%s sets only one of bqSystem=%q parquetPrefix=%q; set both or neither",
+				eco, info.bqSystem, info.parquetPrefix)
+		}
 	}
 }
 
@@ -71,6 +77,9 @@ func TestUnregisteredEcosystemIsInert(t *testing.T) {
 	if MatchesVersion(PyPI, ">=1.0", "1.5") {
 		t.Error("MatchesVersion matched for an unregistered ecosystem")
 	}
+	if PyPI.SupportsDatasetDownload() {
+		t.Error("PyPI reports dataset download support without being registered")
+	}
 	if err := Enrich(context.Background(), PyPI, nil, 1); err != nil {
 		t.Errorf("Enrich on an unregistered ecosystem returned %v, want nil", err)
 	}
@@ -82,5 +91,14 @@ func TestNPMIsConfigured(t *testing.T) {
 	}
 	if !NPM.SupportsEnrichment() {
 		t.Error("NPM should support download enrichment")
+	}
+	if !NPM.SupportsDatasetDownload() {
+		t.Error("NPM should support dataset download")
+	}
+	if got := NPM.BigQuerySystem(); got != "NPM" {
+		t.Errorf("NPM.BigQuerySystem() = %q, want NPM", got)
+	}
+	if got := NPM.ParquetPrefix(); got != "npm-edges" {
+		t.Errorf("NPM.ParquetPrefix() = %q", got)
 	}
 }
