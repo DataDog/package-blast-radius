@@ -187,6 +187,14 @@ make clean      # remove bin/
 
 ## Known limitations
 
+### Bundled dependencies are excluded
+
+npm's `bundleDependencies` freezes a package's resolved dependency tree inside its tarball at publish time. deps.dev represents these frozen, nested copies with synthetic names like `cloudstructs>0.6.11>@types/keyv`.
+
+`blast-radius` excludes these synthetic names. A bundled dependency can't resolve to a version published after its own tarball, so a later compromise can't reach it, and it isn't installable on its own the way a normal dependent is.
+
+This means a package like `cloudstructs` above won't appear in the report if bundling is its only path to the compromised package, even though it once shipped that exact bundled version.
+
 ### Multi-target path attribution
 
 When analyzing multiple compromised packages or versions in one run, `blast-radius` currently keeps one path per affected package version. If the same package version can reach more than one compromised target, the report records the first matching target and path it finds, and later matching targets are not shown for that package version.

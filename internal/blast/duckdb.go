@@ -38,12 +38,20 @@ type duckdbRow struct {
 	Requirement string `json:"Requirement"`
 }
 
+// bundledNodeFilter excludes deps.dev's synthetic names for npm bundled/nested
+// dependency-graph nodes (e.g. "cloudstructs>0.6.11>@types/keyv"). These are
+// frozen inside an already-published tarball via bundleDependencies, so they
+// can never resolve to a newly compromised transitive version and aren't real,
+// independently installable packages. Real npm package names never contain
+// '>', so this is an unambiguous filter. See README "Known limitations".
+const bundledNodeFilter = `Name NOT LIKE '%>%'`
+
 // QueryDirectDependents hands yield every (package, version, requirement) tuple
 // that directly depends on the given target package name.
 func (s *DuckDBSource) QueryDirectDependents(targetName string, yield func(RawDependent) error) error {
 	query := fmt.Sprintf(
-		`SELECT Name, Version, DepName, Requirement FROM edges WHERE DepName = '%s';`,
-		escapeSingleQuotes(targetName),
+		`SELECT Name, Version, DepName, Requirement FROM edges WHERE DepName = '%s' AND %s;`,
+		escapeSingleQuotes(targetName), bundledNodeFilter,
 	)
 	return s.streamQuery(query, yield)
 }
@@ -70,8 +78,9 @@ func (s *DuckDBSource) QueryDependentsOfNames(names []string, yield func(RawDepe
 		SELECT e.Name, e.Version, e.DepName, e.Requirement
 		FROM edges e
 		SEMI JOIN read_csv('%s', columns={'name': 'VARCHAR'}, header=false, auto_detect=false) t
-		ON e.DepName = t.name;
-	`, tmpFile.Name())
+		ON e.DepName = t.name
+		WHERE %s;
+	`, tmpFile.Name(), bundledNodeFilter)
 
 	return s.streamQuery(query, yield)
 }
