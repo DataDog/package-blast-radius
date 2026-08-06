@@ -26,16 +26,21 @@ type ecosystemInfo struct {
 	bqSystem string
 	// parquetPrefix names the exported shards: "npm-edges" -> npm-edges-*.parquet.
 	parquetPrefix string
+	// versionsParquetPrefix names the exported publish-date shards, used to
+	// decide whether a bundled dependency edge predates or postdates a
+	// compromise. Empty means no publish-date export is configured.
+	versionsParquetPrefix string
 }
 
 var ecosystems = map[Ecosystem]ecosystemInfo{
 	NPM: {
-		cliName:       "npm",
-		dbName:        "npm-deps.duckdb",
-		matches:       npmMatches,
-		enrich:        enrichNPMDownloads,
-		bqSystem:      "NPM",
-		parquetPrefix: "npm-edges",
+		cliName:               "npm",
+		dbName:                "npm-deps.duckdb",
+		matches:               npmMatches,
+		enrich:                enrichNPMDownloads,
+		bqSystem:              "NPM",
+		parquetPrefix:         "npm-edges",
+		versionsParquetPrefix: "npm-versions",
 	},
 }
 
@@ -73,6 +78,12 @@ func (e Ecosystem) BigQuerySystem() string {
 // ParquetPrefix is the basename of this ecosystem's exported parquet shards.
 func (e Ecosystem) ParquetPrefix() string {
 	return ecosystems[e].parquetPrefix
+}
+
+// VersionsParquetPrefix is the basename of this ecosystem's exported
+// publish-date parquet shards.
+func (e Ecosystem) VersionsParquetPrefix() string {
+	return ecosystems[e].versionsParquetPrefix
 }
 
 // SupportsDatasetDownload reports whether the dependency graph for this

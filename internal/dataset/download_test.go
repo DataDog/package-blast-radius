@@ -119,8 +119,8 @@ func TestDownloadCreatesTheBucketAfterConsent(t *testing.T) {
 	f.gcp.bucketStatus = 404
 	f.shardsAfterExport("blast-radius/2026-03-23/", 2)
 
-	// Create the bucket, then approve the export cost.
-	if err := f.run(t, "y\ny\n", nil); err != nil {
+	// Create the bucket, then approve both export costs (edges, then publish dates).
+	if err := f.run(t, "y\ny\ny\n", nil); err != nil {
 		t.Fatalf("Download: %v", err)
 	}
 	if got := f.gcp.countRequests("POST", "/storage/v1/b"); got != 1 {
@@ -205,8 +205,8 @@ func TestDownloadForceDeletesStaleShardsAfterConfirming(t *testing.T) {
 	f := newDownloadFixture(t)
 	f.shardsInBucket("blast-radius/2026-03-23/", 3)
 
-	// Approve the deletion, then the query cost.
-	if err := f.run(t, "y\ny\n", func(o *Options) { o.Force = true }); err != nil {
+	// Approve the deletion, then both export costs (edges, then publish dates).
+	if err := f.run(t, "y\ny\ny\n", func(o *Options) { o.Force = true }); err != nil {
 		t.Fatalf("Download: %v", err)
 	}
 	if got := f.gcp.countRequests("DELETE", ".parquet"); got != 3 {
@@ -233,12 +233,13 @@ func TestDownloadHappyPathBuildsTheDatabase(t *testing.T) {
 	f.shardsAfterExport("blast-radius/2026-03-23/", 4)
 	f.runner.output = "549213\n"
 
-	if err := f.run(t, "y\n", nil); err != nil {
+	// Two export queries now run: edges, then publish dates.
+	if err := f.run(t, "y\ny\n", nil); err != nil {
 		t.Fatalf("Download: %v", err)
 	}
 
-	if jobs := f.gcp.billableJobs(); len(jobs) != 2 {
-		t.Errorf("ran %d billable jobs, want 2 (query then extract)", len(jobs))
+	if jobs := f.gcp.billableJobs(); len(jobs) != 4 {
+		t.Errorf("ran %d billable jobs, want 4 (edges query+extract, versions query+extract)", len(jobs))
 	}
 	if !strings.Contains(f.runner.allArgs(), "CREATE TABLE edges") {
 		t.Errorf("the database was not built:\n%s", f.runner.allArgs())
@@ -258,7 +259,7 @@ func TestDownloadRemovesShardsUnlessAskedToKeepThem(t *testing.T) {
 		f := newDownloadFixture(t)
 		f.shardsAfterExport("blast-radius/2026-03-23/", 2)
 
-		if err := f.run(t, "y\n", func(o *Options) { o.KeepParquet = keep }); err != nil {
+		if err := f.run(t, "y\ny\n", func(o *Options) { o.KeepParquet = keep }); err != nil {
 			t.Fatalf("Download(keep=%v): %v", keep, err)
 		}
 
@@ -307,7 +308,7 @@ func TestSkipBuildNeverInvokesDuckDB(t *testing.T) {
 	f := newDownloadFixture(t)
 	f.shardsAfterExport("blast-radius/2026-03-23/", 2)
 
-	if err := f.run(t, "y\n", func(o *Options) { o.SkipBuild = true }); err != nil {
+	if err := f.run(t, "y\ny\n", func(o *Options) { o.SkipBuild = true }); err != nil {
 		t.Fatalf("Download: %v", err)
 	}
 	if len(f.runner.calls) != 0 {
@@ -331,7 +332,7 @@ func TestDownloadDiscoversTheSnapshotDateWhenNotGiven(t *testing.T) {
 	}
 	f.shardsAfterExport("blast-radius/2026-04-11/", 1)
 
-	err := f.run(t, "y\n", func(o *Options) {
+	err := f.run(t, "y\ny\n", func(o *Options) {
 		o.SnapshotDate = ""
 		o.now = func() time.Time { return time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC) }
 	})
@@ -343,8 +344,8 @@ func TestDownloadDiscoversTheSnapshotDateWhenNotGiven(t *testing.T) {
 		t.Errorf("the discovered snapshot date was not used:\n%s", out)
 	}
 	// Discovery must cost nothing; a dry run is not a billable job.
-	if jobs := f.gcp.billableJobs(); len(jobs) != 2 {
-		t.Errorf("ran %d billable jobs, want 2 (the export query and its extract)", len(jobs))
+	if jobs := f.gcp.billableJobs(); len(jobs) != 4 {
+		t.Errorf("ran %d billable jobs, want 4 (edges query+extract, versions query+extract)", len(jobs))
 	}
 }
 
@@ -440,7 +441,7 @@ func TestDownloadFailsWhenTheExportProducedNothing(t *testing.T) {
 	f := newDownloadFixture(t)
 	f.gcp.objects = nil
 
-	err := f.run(t, "y\n", nil)
+	err := f.run(t, "y\ny\n", nil)
 	if err == nil {
 		t.Fatal("Download succeeded with no shards in the bucket")
 	}

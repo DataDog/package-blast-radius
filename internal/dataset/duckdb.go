@@ -15,7 +15,7 @@ import (
 // parquetDir. The index on DepName is what makes reverse dependency lookup fast,
 // and it is the whole reason for materialising a database instead of querying the
 // parquet files directly.
-func buildDatabase(ctx context.Context, runner Runner, parquetDir, dbPath, parquetPrefix string, r *reporter) error {
+func buildDatabase(ctx context.Context, runner Runner, parquetDir, dbPath, parquetPrefix, versionsPrefix string, r *reporter) error {
 	shards, err := filepath.Glob(filepath.Join(parquetDir, parquetPrefix+"-*.parquet"))
 	if err != nil {
 		return err
@@ -39,6 +39,22 @@ func buildDatabase(ctx context.Context, runner Runner, parquetDir, dbPath, parqu
 	query := fmt.Sprintf(
 		"CREATE TABLE edges AS SELECT * FROM '%s';\nCREATE INDEX idx_depname ON edges(DepName);",
 		escapeSingleQuotes(glob))
+
+	// The versions table is optional: an older parquet directory downloaded
+	// before publish dates were exported has no such shards, and the database
+	// still builds, just without the data QueryPublishedAt needs.
+	if versionsPrefix != "" {
+		versionShards, err := filepath.Glob(filepath.Join(parquetDir, versionsPrefix+"-*.parquet"))
+		if err != nil {
+			return err
+		}
+		if len(versionShards) > 0 {
+			versionsGlob := filepath.Join(parquetDir, versionsPrefix+"-*.parquet")
+			query += fmt.Sprintf(
+				"\nCREATE TABLE versions AS SELECT * FROM '%s';\nCREATE INDEX idx_version_name ON versions(Name, Version);",
+				escapeSingleQuotes(versionsGlob))
+		}
+	}
 
 	start := time.Now()
 	stopHeartbeat := r.heartbeat("still building", heartbeatInterval)

@@ -29,6 +29,20 @@ type Options struct {
 type dependentSource interface {
 	QueryDirectDependents(string, func(RawDependent) error) error
 	QueryDependentsOfNames([]string, func(RawDependent) error) error
+	QueryPublishedAt([]PackageVersion) (map[string]time.Time, error)
+}
+
+// parseBundledName splits deps.dev's synthetic name for an npm bundled/nested
+// dependency-graph node, e.g. "cloudstructs>0.6.11>@types/keyv", into the root
+// package that did the bundling and the version it bundled at. Real npm names
+// never contain '>', so three '>'-separated parts unambiguously mean this is
+// one of these synthetic nodes rather than an installable package.
+func parseBundledName(name string) (rootName, rootVersion string, ok bool) {
+	parts := strings.SplitN(name, ">", 3)
+	if len(parts) < 3 {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
 
 // ParseCompromisedCSV reads one package per line, in either of two shapes:
@@ -256,16 +270,22 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 		var nextFrontier []frontierEntry
 		edges := 0
 
+		// A bundled/nested edge (deps.dev's synthetic "root>version>local" name,
+		// see parseBundledName) can't be committed immediately: whether the root
+		// package actually shipped the compromised version depends on publish
+		// dates that are only known once the whole depth has been scanned.
+		type bundledCandidate struct {
+			root          PackageVersion
+			matchedParent frontierEntry
+		}
+		var bundledCandidates []bundledCandidate
+		bundledSeen := make(map[string]bool)
+
 		// Edges are filtered as they arrive rather than collected first: a
 		// popular package has millions of direct dependents, and holding a whole
 		// depth's worth of them costs gigabytes.
 		keepIfAffected := func(dep RawDependent) error {
 			edges++
-
-			key := dep.DependentName + "@" + dep.DependentVersion
-			if visited[key] {
-				return nil
-			}
 
 			parents := frontierByName[dep.TargetName]
 			var matchedParent *frontierEntry
@@ -279,6 +299,23 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 				return nil
 			}
 
+			if rootName, rootVersion, ok := parseBundledName(dep.DependentName); ok {
+				root := PackageVersion{System: system, Name: rootName, Version: rootVersion}
+				key := root.String()
+				if visited[key] || bundledSeen[key] {
+					return nil
+				}
+				bundledSeen[key] = true
+				bundledCandidates = append(bundledCandidates, bundledCandidate{
+					root: root, matchedParent: *matchedParent,
+				})
+				return nil
+			}
+
+			key := dep.DependentName + "@" + dep.DependentVersion
+			if visited[key] {
+				return nil
+			}
 			visited[key] = true
 
 			path := make([]PathStep, 0, len(matchedParent.path)+1)
@@ -323,6 +360,63 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 			}
 		}
 		totalEdges += edges
+
+		// A bundled root is included unless its own publish date provably
+		// predates the compromised target it would have had to freeze in.
+		// Bundling snapshots the entire resolved subtree at once, so whatever
+		// version of the target ended up frozen inside the root's tarball had
+		// to exist by the root's own publish date regardless of which
+		// intermediate version our traversal happened to match through - an
+		// older intermediate satisfying the same range could just as well
+		// have been the one actually bundled. Publish dates come from a
+		// separate deps.dev export and may be entirely unavailable (older
+		// local database); when they are, the candidate is included rather
+		// than silently dropped, since hiding a real compromise is worse than
+		// showing one that turns out to be safe. See README "Bundled npm
+		// dependencies".
+		if len(bundledCandidates) > 0 {
+			lookups := make([]PackageVersion, 0, len(bundledCandidates)*2)
+			for _, c := range bundledCandidates {
+				lookups = append(lookups, c.root, c.matchedParent.target)
+			}
+			dates, err := source.QueryPublishedAt(lookups)
+			if err != nil {
+				return nil, fmt.Errorf("looking up publish dates at depth %d: %w", d+1, err)
+			}
+			for _, c := range bundledCandidates {
+				key := c.root.String()
+				if visited[key] {
+					continue
+				}
+				rootDate, rootOK := dates[key]
+				targetDate, targetOK := dates[c.matchedParent.target.String()]
+				if rootOK && targetOK && rootDate.Before(targetDate) {
+					continue // the target version did not exist yet when the bundle was frozen
+				}
+
+				visited[key] = true
+				path := make([]PathStep, 0, len(c.matchedParent.path)+1)
+				path = append(path, PathStep{
+					Package:     c.root.Name,
+					Version:     c.root.Version,
+					Requirement: "bundled",
+				})
+				path = append(path, c.matchedParent.path...)
+
+				allAffected = append(allAffected, AffectedPackage{
+					PackageVersion:  c.root,
+					Depth:           d + 1,
+					Path:            path,
+					Target:          c.matchedParent.target,
+					WeeklyDownloads: -1,
+				})
+				nextFrontier = append(nextFrontier, frontierEntry{
+					pkg:    c.root,
+					path:   path,
+					target: c.matchedParent.target,
+				})
+			}
+		}
 
 		fmt.Fprintf(progress, "Depth %d: scanned %d edges, found %d new affected packages\n",
 			d+1, edges, len(nextFrontier))

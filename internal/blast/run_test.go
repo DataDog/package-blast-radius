@@ -201,10 +201,153 @@ func TestComputeBlastRadiusTraversesMatchingDependents(t *testing.T) {
 	}
 }
 
+func TestComputeBlastRadiusExcludesABundleThatPredatesTheCompromise(t *testing.T) {
+	target := PackageVersion{System: NPM, Name: "vulnerable", Version: "1.2.3"}
+	source := &fakeDependentSource{
+		edges: map[string][]RawDependent{
+			"vulnerable": {
+				{DependentName: "bundler>1.0.0>vulnerable", DependentVersion: "1.0.0", TargetName: "vulnerable", Requirement: "^1.0.0"},
+			},
+		},
+		publishedAt: map[string]time.Time{
+			"bundler@1.0.0":    time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+			"vulnerable@1.2.3": time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	result, err := computeBlastRadius(NPM, []PackageVersion{target}, 1, source, io.Discard, time.Now())
+	if err != nil {
+		t.Fatalf("computeBlastRadius: %v", err)
+	}
+	if len(result.Affected) != 0 {
+		t.Errorf("Affected = %+v, want none: bundler@1.0.0 predates vulnerable@1.2.3", result.Affected)
+	}
+}
+
+func TestComputeBlastRadiusIncludesABundleThatPostdatesTheCompromise(t *testing.T) {
+	target := PackageVersion{System: NPM, Name: "vulnerable", Version: "1.2.3"}
+	source := &fakeDependentSource{
+		edges: map[string][]RawDependent{
+			"vulnerable": {
+				{DependentName: "bundler>2.0.0>vulnerable", DependentVersion: "2.0.0", TargetName: "vulnerable", Requirement: "^1.0.0"},
+			},
+		},
+		publishedAt: map[string]time.Time{
+			"bundler@2.0.0":    time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC),
+			"vulnerable@1.2.3": time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	result, err := computeBlastRadius(NPM, []PackageVersion{target}, 1, source, io.Discard, time.Now())
+	if err != nil {
+		t.Fatalf("computeBlastRadius: %v", err)
+	}
+	affected := affectedByKey(result.Affected)
+	got, ok := affected["bundler@2.0.0"]
+	if !ok {
+		t.Fatalf("Affected = %+v, want bundler@2.0.0 (published after vulnerable@1.2.3)", result.Affected)
+	}
+	if got.Target != target {
+		t.Errorf("target = %+v, want %+v", got.Target, target)
+	}
+	if len(got.Path) != 1 || got.Path[0].Requirement != "bundled" {
+		t.Errorf("path = %+v, want a single bundled step", got.Path)
+	}
+}
+
+func TestComputeBlastRadiusExcludesNestedBundleThatPredatesTheCompromise(t *testing.T) {
+	target := PackageVersion{System: NPM, Name: "vulnerable", Version: "1.2.3"}
+	source := &fakeDependentSource{
+		edges: map[string][]RawDependent{
+			"vulnerable": {
+				{DependentName: "intermediate", DependentVersion: "1.0.0", TargetName: "vulnerable", Requirement: "^1.0.0"},
+			},
+			"intermediate": {
+				{DependentName: "bundler>1.0.0>intermediate", DependentVersion: "1.0.0", TargetName: "intermediate", Requirement: "^1.0.0"},
+			},
+		},
+		publishedAt: map[string]time.Time{
+			"intermediate@1.0.0": time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC),
+			"bundler@1.0.0":      time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+			"vulnerable@1.2.3":   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	result, err := computeBlastRadius(NPM, []PackageVersion{target}, 2, source, io.Discard, time.Now())
+	if err != nil {
+		t.Fatalf("computeBlastRadius: %v", err)
+	}
+	if _, ok := affectedByKey(result.Affected)["bundler@1.0.0"]; ok {
+		t.Errorf("Affected = %+v, want bundler excluded: root predates the target even though it postdates the matched intermediate", result.Affected)
+	}
+}
+
+// A bundled edge found through an intermediate hop must be judged against the
+// actual compromised target's publish date, not the specific intermediate
+// version our traversal happened to match through. Bundling freezes the
+// entire resolved subtree at once, so whichever target version ended up
+// frozen inside the root's tarball had to exist by the root's publish date
+// regardless of which intermediate satisfied the range - an older
+// intermediate could just as well have been the one actually bundled.
+// Excluding on the intermediate's date instead would hide a real compromise:
+// the exact regression this test guards against.
+func TestComputeBlastRadiusKeepsABundleWhenOnlyTheIntermediatePostdatesTheRoot(t *testing.T) {
+	target := PackageVersion{System: NPM, Name: "vulnerable", Version: "1.0.0"}
+	source := &fakeDependentSource{
+		edges: map[string][]RawDependent{
+			"vulnerable": {
+				{DependentName: "@types/thing", DependentVersion: "2.0.0", TargetName: "vulnerable", Requirement: "^1.0.0"},
+			},
+			"@types/thing": {
+				{DependentName: "bundler>1.0.0>something", DependentVersion: "1.0.0", TargetName: "@types/thing", Requirement: "^2.0.0"},
+			},
+		},
+		publishedAt: map[string]time.Time{
+			"vulnerable@1.0.0":   time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC),
+			"bundler@1.0.0":      time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+			"@types/thing@2.0.0": time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), // postdates the root
+		},
+	}
+
+	result, err := computeBlastRadius(NPM, []PackageVersion{target}, 2, source, io.Discard, time.Now())
+	if err != nil {
+		t.Fatalf("computeBlastRadius: %v", err)
+	}
+	affected := affectedByKey(result.Affected)
+	got, ok := affected["bundler@1.0.0"]
+	if !ok {
+		t.Fatalf("Affected = %+v, want bundler@1.0.0 kept: root postdates the target even though the matched intermediate postdates the root", result.Affected)
+	}
+	if got.Target != target {
+		t.Errorf("target = %+v, want %+v", got.Target, target)
+	}
+}
+
+func TestComputeBlastRadiusIncludesABundleWithNoKnownPublishDate(t *testing.T) {
+	target := PackageVersion{System: NPM, Name: "vulnerable", Version: "1.2.3"}
+	source := &fakeDependentSource{
+		edges: map[string][]RawDependent{
+			"vulnerable": {
+				{DependentName: "bundler>3.0.0>vulnerable", DependentVersion: "3.0.0", TargetName: "vulnerable", Requirement: "^1.0.0"},
+			},
+		},
+		// No versions table available locally: publishedAt is nil.
+	}
+
+	result, err := computeBlastRadius(NPM, []PackageVersion{target}, 1, source, io.Discard, time.Now())
+	if err != nil {
+		t.Fatalf("computeBlastRadius: %v", err)
+	}
+	if len(result.Affected) != 1 || result.Affected[0].Name != "bundler" {
+		t.Errorf("Affected = %+v, want bundler included when publish dates are unknown", result.Affected)
+	}
+}
+
 type fakeDependentSource struct {
 	edges         map[string][]RawDependent
 	directQueries []string
 	multiQueries  [][]string
+	publishedAt   map[string]time.Time
 }
 
 func (f *fakeDependentSource) QueryDirectDependents(name string, yield func(RawDependent) error) error {
@@ -220,6 +363,19 @@ func (f *fakeDependentSource) QueryDependentsOfNames(names []string, yield func(
 		}
 	}
 	return nil
+}
+
+func (f *fakeDependentSource) QueryPublishedAt(pkgs []PackageVersion) (map[string]time.Time, error) {
+	if f.publishedAt == nil {
+		return nil, nil
+	}
+	out := make(map[string]time.Time)
+	for _, pv := range pkgs {
+		if t, ok := f.publishedAt[pv.String()]; ok {
+			out[pv.String()] = t
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeDependentSource) yield(name string, yield func(RawDependent) error) error {

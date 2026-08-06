@@ -319,18 +319,39 @@ func ensurePrefixIsClear(ctx context.Context, c *client, bucket, prefix string, 
 }
 
 func runExport(ctx context.Context, c *client, bucket, prefix string, opts *Options, ask *confirmer, r *reporter) error {
-	tableID := strings.ReplaceAll(opts.System.ParquetPrefix(), "-", "_")
-	dest := &tableRef{ProjectID: opts.ProjectID, DatasetID: opts.DatasetID, TableID: tableID}
-
 	r.step("Export query")
 
 	if err := ensurePrefixIsClear(ctx, c, bucket, prefix, opts, ask, r); err != nil {
 		return err
 	}
 
+	sql := edgeExportSQL(opts.System.BigQuerySystem(), opts.SnapshotDate)
+	if err := exportOne(ctx, c, bucket, prefix, opts, ask, r, opts.System.ParquetPrefix(), sql); err != nil {
+		return err
+	}
+
+	// The publish-date export lets a bundled/nested dependency edge be judged
+	// against when its bundling package and the version it depends on were
+	// each released, instead of being excluded outright. See README "How
+	// bundled dependencies are handled".
+	if versionsPrefix := opts.System.VersionsParquetPrefix(); versionsPrefix != "" {
+		versionsSQL := versionExportSQL(opts.System.BigQuerySystem(), opts.SnapshotDate)
+		if err := exportOne(ctx, c, bucket, prefix, opts, ask, r, versionsPrefix, versionsSQL); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// exportOne prices, confirms, runs, and extracts a single query into its own
+// destination table and parquet shards under the shared prefix.
+func exportOne(ctx context.Context, c *client, bucket, prefix string, opts *Options, ask *confirmer, r *reporter, parquetPrefix, sql string) error {
+	tableID := strings.ReplaceAll(parquetPrefix, "-", "_")
+	dest := &tableRef{ProjectID: opts.ProjectID, DatasetID: opts.DatasetID, TableID: tableID}
+
 	r.field("destination", "%s:%s.%s", dest.ProjectID, dest.DatasetID, dest.TableID)
 
-	sql := edgeExportSQL(opts.System.BigQuerySystem(), opts.SnapshotDate)
 	if err := c.priceAndConfirm(ctx, opts.ProjectID, sql, ask, r); err != nil {
 		if errors.Is(err, errEmptyScan) {
 			return fmt.Errorf("no %s snapshot on %s: the export query would read nothing\n"+
@@ -346,7 +367,7 @@ func runExport(ctx context.Context, c *client, bucket, prefix string, opts *Opti
 		return err
 	}
 
-	destURI := fmt.Sprintf("gs://%s/%s%s-*.parquet", bucket, prefix, opts.System.ParquetPrefix())
+	destURI := fmt.Sprintf("gs://%s/%s%s-*.parquet", bucket, prefix, parquetPrefix)
 	if err := c.extractToGCS(ctx, opts.ProjectID, dest, destURI, r); err != nil {
 		return err
 	}
@@ -378,7 +399,7 @@ func buildAndReport(ctx context.Context, opts *Options, r *reporter) error {
 	dbPath := opts.dbPath()
 
 	r.step("Build")
-	if err := buildDatabase(ctx, opts.Runner, parquetDir, dbPath, opts.System.ParquetPrefix(), r); err != nil {
+	if err := buildDatabase(ctx, opts.Runner, parquetDir, dbPath, opts.System.ParquetPrefix(), opts.System.VersionsParquetPrefix(), r); err != nil {
 		return err
 	}
 
@@ -398,7 +419,11 @@ func buildAndReport(ctx context.Context, opts *Options, r *reporter) error {
 	r.field("size", "%s", humanBytes(size))
 
 	if !opts.KeepParquet && !opts.BuildOnly {
-		if err := removeShards(parquetDir, opts.System.ParquetPrefix()); err != nil {
+		prefixes := []string{opts.System.ParquetPrefix()}
+		if v := opts.System.VersionsParquetPrefix(); v != "" {
+			prefixes = append(prefixes, v)
+		}
+		if err := removeShards(parquetDir, prefixes); err != nil {
 			r.field("shards", "kept in %s: %v", parquetDir, err)
 		} else {
 			r.field("shards", "removed from %s (--keep-parquet keeps them)", parquetDir)
@@ -412,14 +437,16 @@ func buildAndReport(ctx context.Context, opts *Options, r *reporter) error {
 
 // removeShards deletes only the shards this tool wrote, leaving anything else in
 // the directory alone.
-func removeShards(parquetDir, parquetPrefix string) error {
-	shards, err := filepath.Glob(filepath.Join(parquetDir, parquetPrefix+"-*.parquet"))
-	if err != nil {
-		return err
-	}
-	for _, shard := range shards {
-		if err := os.Remove(shard); err != nil {
+func removeShards(parquetDir string, parquetPrefixes []string) error {
+	for _, prefix := range parquetPrefixes {
+		shards, err := filepath.Glob(filepath.Join(parquetDir, prefix+"-*.parquet"))
+		if err != nil {
 			return err
+		}
+		for _, shard := range shards {
+			if err := os.Remove(shard); err != nil {
+				return err
+			}
 		}
 	}
 	os.Remove(parquetDir) // Only succeeds if it is now empty, which is the intent.

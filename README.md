@@ -82,7 +82,8 @@ The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](
 `blast-radius download-data`:
 - creates a BigQuery table in your Google Cloud project (around 20 GB, expected monthly cost < $1)
 - queries the BigQuery table and exports it (one-time cost ~$10)
-- exports the data as Parquet files into a Google Cloud Storage (GCS) bucket (around 10 GB, expected monthly cost < $1)
+- queries the same BigQuery dataset for each package version's publish date and exports that too (a second, separately-priced query, typically well under $1), which lets `blast-radius` reason about bundled dependencies (see "Bundled npm dependencies" above)
+- exports both as Parquet files into a Google Cloud Storage (GCS) bucket (around 10 GB, expected monthly cost < $1)
 - downloads the Parquet files to your machine
 - builds a local DuckDB instance (single, self-contained file) from them
 - removes the Parquet files from your machine
@@ -113,6 +114,13 @@ project dd-security-research   snapshot 2026-08-03 (latest)
       query        job_3WAX65RHz6AgedIZTvcpBaUjwfu1  done in 16s
       extract      job_qf_SPET85Tr74pPddnQqmOEg0akh  done in 6s
       wrote        gs://dd-security-research-blast-radius/blast-radius/2026-08-03/npm-edges-*.parquet
+      destination  dd-security-research:blast_radius.npm_versions
+      scan size    0.09 TiB
+      cost         ~$0.56   on-demand, $6.25/TiB
+      Proceed? [y/N] y
+      query        job_9k1Zc1RHz6AgedIZTvcpBaUjw2   done in 9s
+      extract      job_bT_LMET85Tr74pPddnQqmOEg1a  done in 4s
+      wrote        gs://dd-security-research-blast-radius/blast-radius/2026-08-03/npm-versions-*.parquet
 
 [3/4] Download
       1000 shards to data/parquet/2026-08-03
@@ -185,15 +193,7 @@ make vet        # run go vet
 make clean      # remove bin/
 ```
 
-## Known limitations
-
-### Bundled dependencies are excluded
-
-npm's `bundleDependencies` freezes a package's resolved dependency tree inside its tarball at publish time. deps.dev represents these frozen, nested copies with synthetic names like `cloudstructs>0.6.11>@types/keyv`.
-
-`blast-radius` excludes these synthetic names. A bundled dependency can't resolve to a version published after its own tarball, so a later compromise can't reach it, and it isn't installable on its own the way a normal dependent is.
-
-This means a package like `cloudstructs` above won't appear in the report if bundling is its only path to the compromised package, even though it once shipped that exact bundled version.
+## Additional notes and known limitations
 
 ### Multi-target path attribution
 
@@ -222,3 +222,24 @@ everything it shows inherits the limitation above. Specifically:
   of one package share a single node.
 - The traced-package graph draws the 30 shortest routes and says how many more
   are recorded. One package in the test corpus has 242.
+
+### How `blast-radius` handles bundled npm dependencies
+
+npm packages can freeze dependencies directly into their tarball with `bundleDependencies` or `bundledDependencies`. deps.dev records each package inside that frozen subtree with a synthetic name, for example:
+
+```text
+cloudstructs>0.6.11>@types/keyv
+```
+
+`cloudstructs@0.6.11` bundled a dependency tree containing `@types/keyv`. The synthetic name preserves the bundling root and the bundled package, but drops every intermediate package in between.
+
+`blast-radius` treats each of these rows as a candidate for the bundling root package, labels its path step `bundled`, and applies a publish-date check:
+
+- If the bundling root was published before the compromised target version existed, `blast-radius` drops the edge: the root's tarball could not have frozen in a version that didn't exist yet.
+- If the root was published on or after the target version, or either publish date is missing, `blast-radius` keeps the edge.
+
+For example, `cloudstructs@0.6.11` was published on 2022-11-01, and `keyv@6.0.0` was published on 2026-08-04. A 2022 tarball cannot contain a 2026 package version, so `blast-radius` excludes a direct bundled hit on `keyv@6.0.0` when both publish dates are known. If the local `versions` table predates the target version and has no date for `keyv@6.0.0`, `blast-radius` keeps the result instead, conservatively.
+
+This check only proves whether the compromised target version existed yet when the bundling root was published. It does not reconstruct the exact frozen tree. Treat bundled rows as candidates, not certainties, and verify them against the published tarball when exact attribution matters.
+
+Publish dates come from the optional `PackageVersions` export in `blast-radius download-data`. Older databases without that table keep every bundled candidate, since their publish dates are unknown.

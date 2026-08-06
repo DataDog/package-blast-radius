@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type DuckDBSource struct {
@@ -38,20 +39,12 @@ type duckdbRow struct {
 	Requirement string `json:"Requirement"`
 }
 
-// bundledNodeFilter excludes deps.dev's synthetic names for npm bundled/nested
-// dependency-graph nodes (e.g. "cloudstructs>0.6.11>@types/keyv"). These are
-// frozen inside an already-published tarball via bundleDependencies, so they
-// can never resolve to a newly compromised transitive version and aren't real,
-// independently installable packages. Real npm package names never contain
-// '>', so this is an unambiguous filter. See README "Known limitations".
-const bundledNodeFilter = `Name NOT LIKE '%>%'`
-
 // QueryDirectDependents hands yield every (package, version, requirement) tuple
 // that directly depends on the given target package name.
 func (s *DuckDBSource) QueryDirectDependents(targetName string, yield func(RawDependent) error) error {
 	query := fmt.Sprintf(
-		`SELECT Name, Version, DepName, Requirement FROM edges WHERE DepName = '%s' AND %s;`,
-		escapeSingleQuotes(targetName), bundledNodeFilter,
+		`SELECT Name, Version, DepName, Requirement FROM edges WHERE DepName = '%s';`,
+		escapeSingleQuotes(targetName),
 	)
 	return s.streamQuery(query, yield)
 }
@@ -78,11 +71,100 @@ func (s *DuckDBSource) QueryDependentsOfNames(names []string, yield func(RawDepe
 		SELECT e.Name, e.Version, e.DepName, e.Requirement
 		FROM edges e
 		SEMI JOIN read_csv('%s', columns={'name': 'VARCHAR'}, header=false, auto_detect=false) t
-		ON e.DepName = t.name
-		WHERE %s;
-	`, tmpFile.Name(), bundledNodeFilter)
+		ON e.DepName = t.name;
+	`, tmpFile.Name())
 
 	return s.streamQuery(query, yield)
+}
+
+// publishDateLayouts covers the timestamp shapes duckdb's JSON output uses for
+// a TIMESTAMP column, which vary with fractional seconds and an optional zone.
+var publishDateLayouts = []string{
+	"2006-01-02 15:04:05.999999-07",
+	"2006-01-02 15:04:05.999999",
+	"2006-01-02T15:04:05.999999",
+	"2006-01-02 15:04:05",
+	"2006-01-02T15:04:05",
+}
+
+// QueryPublishedAt looks up when each of pkgs was published, keyed by
+// "name@version". A missing "versions" table (built only when download-data
+// exported PackageVersions) is not an error: the caller gets an empty map and
+// falls back to treating those packages as having an unknown publish date.
+func (s *DuckDBSource) QueryPublishedAt(pkgs []PackageVersion) (map[string]time.Time, error) {
+	if len(pkgs) == 0 {
+		return nil, nil
+	}
+
+	tmpFile, err := os.CreateTemp("", "blast-radius-pubdates-*.csv")
+	if err != nil {
+		return nil, fmt.Errorf("creating temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	for _, pv := range pkgs {
+		fmt.Fprintf(tmpFile, "%s,%s\n", csvField(pv.Name), csvField(pv.Version))
+	}
+	tmpFile.Close()
+
+	query := fmt.Sprintf(`
+		SELECT v.Name, v.Version, v.PublishedAt
+		FROM versions v
+		JOIN read_csv('%s', columns={'name': 'VARCHAR', 'version': 'VARCHAR'}, header=false, auto_detect=false) t
+		ON v.Name = t.name AND v.Version = t.version;
+	`, tmpFile.Name())
+
+	cmd := exec.Command("duckdb", s.dbPath, "-json", "-c", query)
+	var stderr bytes.Buffer
+	cmd.Stderr = &limitedWriter{w: &stderr, remaining: stderrLimit}
+	out, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if strings.Contains(msg, "does not exist") || strings.Contains(msg, "Table with name versions") {
+			return nil, nil
+		}
+		if msg != "" {
+			return nil, fmt.Errorf("duckdb query failed: %s", msg)
+		}
+		return nil, fmt.Errorf("duckdb query failed: %w", err)
+	}
+
+	var rows []struct {
+		Name        string `json:"Name"`
+		Version     string `json:"Version"`
+		PublishedAt string `json:"PublishedAt"`
+	}
+	if len(bytes.TrimSpace(out)) > 0 {
+		if err := json.Unmarshal(out, &rows); err != nil {
+			return nil, fmt.Errorf("parsing duckdb output: %w", err)
+		}
+	}
+
+	result := make(map[string]time.Time, len(rows))
+	for _, row := range rows {
+		t, ok := parsePublishDate(row.PublishedAt)
+		if !ok {
+			continue
+		}
+		result[row.Name+"@"+row.Version] = t
+	}
+	return result, nil
+}
+
+func parsePublishDate(s string) (time.Time, bool) {
+	for _, layout := range publishDateLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// csvField escapes a value for the unquoted CSV format QueryPublishedAt and
+// QueryDependentsOfNames write. Real npm package names and versions never
+// contain a comma, so this only guards against surprises.
+func csvField(s string) string {
+	return strings.ReplaceAll(s, ",", "")
 }
 
 // stderrLimit caps what is kept from a failing duckdb run, which is enough for

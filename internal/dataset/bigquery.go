@@ -98,6 +98,19 @@ func edgeExportSQL(bqSystem, snapshotDate string) string {
 		snapshotDate, bqSystem)
 }
 
+// versionExportSQL builds the publish-date query for one ecosystem and
+// snapshot. PublishedAt is what a bundled/nested dependency edge is judged
+// against: a package can only have bundled a version that already existed
+// when it was itself published.
+func versionExportSQL(bqSystem, snapshotDate string) string {
+	return fmt.Sprintf(
+		"SELECT Name, Version, UpstreamPublishedAt AS PublishedAt\n"+
+			"FROM `bigquery-public-data.deps_dev_v1.PackageVersions`\n"+
+			"WHERE DATE(SnapshotAt) = '%s'\n"+
+			"  AND System = '%s'",
+		snapshotDate, bqSystem)
+}
+
 // formatCost converts a byte count to TiB and on-demand dollars. Kept pure and
 // separate so the arithmetic is testable and locale-independent.
 func formatCost(bytes int64) (tib, usd float64) {

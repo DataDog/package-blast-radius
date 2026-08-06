@@ -185,6 +185,20 @@ func TestEdgeExportSQLIsScopedByDateAndSystem(t *testing.T) {
 	}
 }
 
+func TestVersionExportSQLIsScopedByDateAndSystem(t *testing.T) {
+	sql := versionExportSQL("NPM", "2026-03-23")
+
+	if !strings.Contains(sql, "DATE(SnapshotAt) = '2026-03-23'") {
+		t.Errorf("SQL is missing the snapshot date filter:\n%s", sql)
+	}
+	if !strings.Contains(sql, "System = 'NPM'") {
+		t.Errorf("SQL is missing the system filter:\n%s", sql)
+	}
+	if !strings.Contains(sql, "UpstreamPublishedAt AS PublishedAt") {
+		t.Errorf("SQL is missing the publish date column:\n%s", sql)
+	}
+}
+
 func clientForFake(f *fakeGCP) *client {
 	c := newClient(f.server.Client())
 	c.bigQueryURL = f.server.URL + "/bigquery/v2"
