@@ -342,13 +342,7 @@ func (s *store) handleSummary(sourcePath string) http.HandlerFunc {
 	ranked := s.rankedTargets()
 	targets := make([]targetResponse, 0, len(ranked))
 	for _, t := range ranked {
-		targets = append(targets, targetResponse{
-			Name:               t.Name,
-			Version:            t.Version,
-			Ref:                t.Ref,
-			AttributedPackages: t.AttributedPackages,
-			AttributedVersions: t.AttributedVersions,
-		})
+		targets = append(targets, targetResponse(t))
 	}
 
 	resp := summaryResponse{

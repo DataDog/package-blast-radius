@@ -201,7 +201,7 @@ func renderJSON(result *BlastResult, w io.Writer) error {
 	for i, a := range result.Affected {
 		steps := make([]JSONStep, len(a.Path))
 		for j, s := range a.Path {
-			steps[j] = JSONStep{Package: s.Package, Version: s.Version, Requirement: s.Requirement}
+			steps[j] = JSONStep(s)
 		}
 		out.Affected[i] = JSONAffected{
 			Name:            a.Name,
