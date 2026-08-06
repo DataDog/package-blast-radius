@@ -4,5 +4,5 @@ output/
 .DS_Store
 *.csv
 *.json
-*.json.gz
+*.json.gz,!demo/*.json.gz
 *.html

@@ -1,9 +1,12 @@
 package viewer
 
 import (
+	"bufio"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"os"
 	"slices"
 	"sort"
@@ -455,6 +458,25 @@ func targetName(ref string) string {
 // Load
 // ---------------------------------------------------------------------------
 
+// maybeDecompress wraps f in a gzip reader if it's gzip-compressed, detected
+// by magic bytes rather than the file extension since callers may rename
+// downloaded reports.
+func maybeDecompress(f *os.File, path string) (io.Reader, error) {
+	br := bufio.NewReader(f)
+	magic, err := br.Peek(2)
+	if err != nil && err != io.EOF {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	if len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
+		gr, err := gzip.NewReader(br)
+		if err != nil {
+			return nil, fmt.Errorf("decompressing %s: %w", path, err)
+		}
+		return gr, nil
+	}
+	return br, nil
+}
+
 // loadStore stream-decodes a `blast-radius analyze --output json` file into an
 // aggregated store. Entries are folded in as they arrive rather than collected
 // first: these files reach a gigabyte, and holding the decoded array costs
@@ -469,7 +491,12 @@ func loadStore(jsonPath string) (*store, error) {
 	}
 	defer f.Close()
 
-	dec := json.NewDecoder(f)
+	r, err := maybeDecompress(f, jsonPath)
+	if err != nil {
+		return nil, err
+	}
+
+	dec := json.NewDecoder(r)
 
 	openTok, err := dec.Token()
 	if err != nil || openTok != json.Delim('{') {
