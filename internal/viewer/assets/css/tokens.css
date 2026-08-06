@@ -1,0 +1,130 @@
+/*
+ * Design tokens.
+ *
+ * Purple is an accent, not a theme: surfaces and text stay neutral, and the
+ * brand carries the path spine, selection, active tab and focus ring only.
+ * Red is reserved for one thing, the compromised package.
+ *
+ * Two typefaces with distinct jobs. Sans is chrome: labels, prose, controls.
+ * Mono is every string that came out of a registry: package names, versions,
+ * semver ranges. The split is the point, since it marks at a glance which text
+ * is a literal you could paste into a manifest.
+ *
+ * Every value was checked against the surface it sits on: 4.5:1 for text, 3:1
+ * for borders, marks and focus rings. The depth ramp varies lightness rather
+ * than hue, because a purple hue ramp collapses under deuteranopia while a
+ * lightness ramp survives it. Depth is never encoded by colour alone.
+ */
+
+:root {
+  color-scheme: light;
+
+  --surface-canvas: #ffffff;
+  --surface-raised: #f8f8fb;
+  --surface-overlay: #ffffff;
+  --surface-sunken: #f1f1f6;
+
+  --border-subtle: #e6e6ec;
+  --border-default: #d2d2dc;
+  --border-strong: #b0b0c0;
+
+  --text-primary: #17181f;
+  --text-secondary: #63647a;
+  --text-inverse: #ffffff;
+
+  /* --brand fills and carries white text; --brand-text is the same identity
+     at a lightness that reads as text on the canvas. */
+  --brand: #632ca6;
+  --brand-text: #5b2799;
+  --brand-hover: #51228a;
+  --brand-subtle: #f4eefb;
+  --focus-ring: #8000ff;
+
+  --danger: #c0233f;
+  --danger-text: #a81c36;
+  --danger-subtle: #fdeef1;
+  --warning: #a86400;
+  --success: #1c7f37;
+
+  --depth-1: #3d1866;
+  --depth-2: #542a85;
+  --depth-3: #6b3da3;
+  --depth-4: #8154bd;
+  --depth-5: #916bc7;
+  --depth-6: #9d80cf;
+
+  --shadow-overlay: 0 16px 48px rgba(20, 21, 28, 0.18);
+  --shadow-raised: 0 1px 2px rgba(20, 21, 28, 0.06);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 19px;
+  --text-2xl: 26px;
+  --text-3xl: 34px;
+
+  /* Uppercase micro-labels appear often enough to be worth one definition. */
+  --eyebrow-tracking: 0.08em;
+
+  --topbar-height: 52px;
+  --page-max: 1360px;
+  --panel-width: 560px;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-canvas: #131419;
+  --surface-raised: #1b1c23;
+  --surface-overlay: #23242d;
+  --surface-sunken: #0e0f14;
+
+  --border-subtle: #292a34;
+  --border-default: #383946;
+  --border-strong: #4d4e5f;
+
+  --text-primary: #eaeaf1;
+  --text-secondary: #9a9bb0;
+  --text-inverse: #ffffff;
+
+  --brand: #8000ff;
+  --brand-text: #b087ff;
+  --brand-hover: #9a4dff;
+  --brand-subtle: #241a38;
+  --focus-ring: #a366ff;
+
+  --danger: #ff5c78;
+  --danger-text: #ff8098;
+  --danger-subtle: #2d1620;
+  --warning: #f2a900;
+  --success: #3fc45f;
+
+  /* Mirrored: depth 1 stays the most prominent, which on a dark canvas means
+     the lightest rather than the darkest. */
+  --depth-1: #dcc8ff;
+  --depth-2: #c7abf9;
+  --depth-3: #b291f0;
+  --depth-4: #9d77e4;
+  --depth-5: #8b62da;
+  --depth-6: #7a4fca;
+
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.3);
+}

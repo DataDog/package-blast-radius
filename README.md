@@ -193,3 +193,24 @@ When analyzing multiple compromised packages or versions in one run, `blast-radi
 
 The package version is still reported as affected, but `blast-radius.json` and
 `paths.csv` may not list every compromised target it could resolve to.
+
+### What the viewer shows
+
+`blast-radius visualize` reads one report and never re-runs the analysis, so
+everything it shows inherits the limitation above. Specifically:
+
+- Routes and targets are the ones **recorded by the analyzer**, not every
+  dependency path that exists.
+- Each affected `package@version` carries exactly one recorded path, because
+  traversal dedupes globally on `name@version`.
+- Target counts are **attribution** counts. A package attributed to one target
+  is not proof that no other target reaches it.
+- Version lists summarise **recorded** versions. They are a sparse set, not a
+  continuous semver range, and versions the traversal did not reach are absent.
+- Combined weekly downloads sums per-package counts, so consumers shared
+  between two affected packages are counted twice. A report that was never
+  enriched shows "not enriched" rather than 0.
+- The graph aggregates nodes by package name, so several compromised versions
+  of one package share a single node.
+- The traced-package graph draws the 30 shortest routes and says how many more
+  are recorded. One package in the test corpus has 242.

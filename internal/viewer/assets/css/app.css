@@ -1,0 +1,1695 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--surface-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 600;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.is-hidden {
+  display: none !important;
+}
+
+/* Any component that sets its own `display` outranks the UA's `[hidden]` rule,
+   which leaves an empty shell on screen. This makes the attribute mean what it
+   says wherever it is used. */
+[hidden] {
+  display: none !important;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Every registry string uses mono, which is how you tell a literal you could
+   paste into a manifest from a label this UI made up. */
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.muted {
+  color: var(--text-secondary);
+}
+
+/* ------------------------------------------------------------------ shell */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--surface-canvas);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.topbar__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  height: var(--topbar-height);
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.brand__mark {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow:
+    0 0 0 3px var(--brand-subtle),
+    0 0 0 6px color-mix(in srgb, var(--brand-subtle) 55%, transparent);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.tabs {
+  display: flex;
+  align-self: stretch;
+  gap: var(--space-1);
+}
+
+.tab {
+  position: relative;
+  padding: 0 var(--space-3);
+  background: none;
+  border: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  bottom: 0;
+  height: 2px;
+  background: transparent;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tab[aria-current='page'] {
+  color: var(--text-primary);
+}
+
+.tab[aria-current='page']::after {
+  background: var(--brand);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  color: var(--text-primary);
+  border-color: var(--border-default);
+  background: var(--surface-raised);
+}
+
+.icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Reads as a fact about the run, so it is a label rather than a control. */
+.target-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 40ch;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.target-chip__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-subtle);
+}
+
+.view {
+  flex: 1;
+}
+
+.page {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) var(--space-7);
+}
+
+/* ----------------------------------------------------------------- states */
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-7) var(--space-5);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.state__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.state--error .state__title {
+  color: var(--danger-text);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--brand-text);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* ------------------------------------------------------- overview: hero */
+
+/*
+ * The hero is the compromised package itself. Everything else in the report is
+ * downstream of it, so it leads at display size in mono, the same way it would
+ * appear in the advisory you arrived from.
+ */
+.incident {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-5);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.incident__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.incident__name {
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  word-break: break-all;
+}
+
+/* The multi-target headline is a sentence this UI wrote, not a registry
+   string, so it drops back to sans. */
+.incident__name--prose {
+  font-family: var(--font-sans);
+  word-break: normal;
+}
+
+.incident__sub {
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-5);
+  margin: var(--space-5) 0 var(--space-6);
+}
+
+.stat__value {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.stat__value--muted {
+  font-size: var(--text-lg);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.stat__label {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+/* A lone panel stops at a readable width instead of stretching a handful of
+   rows across the whole viewport. */
+.split--single {
+  grid-template-columns: minmax(0, 620px);
+}
+
+.panel {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.panel__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+/* ------------------------------------------------------- overview: bars */
+
+/*
+ * Distance is the report's spine, so it gets a chart rather than a list. The
+ * bar is the quantity; the ramp stop repeats the distance so the reading never
+ * depends on colour.
+ */
+.bars {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.bar-row {
+  display: contents;
+}
+
+.bar-row__label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.bar-row__track {
+  position: relative;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+/* A span is inline by default, and width/height do nothing to an inline box.
+   Without this the whole chart renders as empty tracks. */
+.bar-row__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--depth-6);
+  transition: width 0.35s ease;
+}
+
+.bar-row__fill[data-depth='1'] { background: var(--depth-1); }
+.bar-row__fill[data-depth='2'] { background: var(--depth-2); }
+.bar-row__fill[data-depth='3'] { background: var(--depth-3); }
+.bar-row__fill[data-depth='4'] { background: var(--depth-4); }
+.bar-row__fill[data-depth='5'] { background: var(--depth-5); }
+
+@media (prefers-reduced-motion: reduce) {
+  .bar-row__fill {
+    transition: none;
+  }
+}
+
+.bar-row__value {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+button.bar-row__label,
+button.bar-row__value {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.bars-link {
+  display: contents;
+}
+
+.bars-link:hover .bar-row__track {
+  outline: 1px solid var(--border-strong);
+}
+
+/* ---------------------------------------------------- overview: targets */
+
+.rank {
+  display: flex;
+  flex-direction: column;
+}
+
+.rank__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.rank__row:first-child {
+  border-top: 0;
+}
+
+.rank__row:hover .rank__name {
+  color: var(--brand-text);
+}
+
+.rank__name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank__value {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.panel__hint {
+  margin: calc(var(--space-3) * -1) 0 var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.panel__note {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* ----------------------------------------------------------------- footer */
+
+.runmeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.runmeta__item strong {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* ---------------------------------------------------------------- filters */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.searchbar {
+  position: relative;
+  flex: 1 1 320px;
+  display: flex;
+  align-items: center;
+}
+
+.searchbar__icon {
+  position: absolute;
+  left: 11px;
+  display: flex;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.searchbar__icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.searchbar__input {
+  width: 100%;
+  height: 34px;
+  padding: 0 96px 0 32px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+}
+
+.searchbar__input::placeholder {
+  color: var(--text-secondary);
+}
+
+.searchbar__input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-subtle);
+}
+
+.searchbar__hint {
+  position: absolute;
+  right: 32px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.searchbar__clear {
+  position: absolute;
+  right: var(--space-2);
+  display: flex;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.searchbar__clear:hover {
+  color: var(--text-primary);
+  background: var(--surface-sunken);
+}
+
+.searchbar__clear svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* A closed range on distance: both ends move, so "at least 3 hops out" is as
+   expressible as "within 2". */
+.reach {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.reach__label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.reach__value {
+  min-width: 6ch;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.reach__value {
+  min-width: 7ch;
+}
+
+.reach__track {
+  position: relative;
+  width: 132px;
+  height: 20px;
+}
+
+/* The drawn track and its selected span. The inputs on top contribute only
+   their thumbs, so this is the only piece that paints the rail. */
+.reach__track::before,
+.reach__fill {
+  content: '';
+  position: absolute;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+}
+
+.reach__track::before {
+  left: 0;
+  right: 0;
+  background: var(--border-default);
+}
+
+.reach__fill {
+  background: var(--brand);
+}
+
+.reach__thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  appearance: none;
+  background: none;
+  /* Both inputs cover the full track, so the top one would swallow every
+     press. Only the thumbs take pointer events. */
+  pointer-events: none;
+}
+
+.reach__thumb::-webkit-slider-runnable-track {
+  height: 20px;
+  background: none;
+}
+
+.reach__thumb::-moz-range-track {
+  height: 20px;
+  background: none;
+}
+
+.reach__thumb::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border: 2px solid var(--brand);
+  border-radius: 50%;
+  background: var(--surface-canvas);
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.reach__thumb::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--brand);
+  border-radius: 50%;
+  background: var(--surface-canvas);
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.reach__thumb:focus-visible {
+  outline: none;
+}
+
+.reach__thumb:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.reach__thumb:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.select {
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-canvas);
+  font-size: var(--text-sm);
+  max-width: 26ch;
+  cursor: pointer;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.toolbar__end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ------------------------------------------------------------------ table */
+
+/*
+ * overflow:clip rather than hidden. Both round the corners, but hidden makes
+ * this a scroll container, which pins the sticky header to the card instead of
+ * the viewport and leaves it floating over the rows.
+ */
+.table-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-canvas);
+  overflow: clip;
+}
+
+table.data {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+table.data th,
+table.data td {
+  padding: var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+table.data thead th {
+  position: sticky;
+  top: var(--topbar-height);
+  z-index: 5;
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
+  background: var(--surface-raised);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+table.data tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+table.data tbody tr {
+  cursor: pointer;
+}
+
+table.data tbody tr:hover td {
+  background: var(--surface-raised);
+}
+
+table.data tbody tr[aria-selected='true'] td {
+  background: var(--brand-subtle);
+}
+
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.th-sort:hover {
+  color: var(--text-primary);
+}
+
+.th-sort[aria-sort='ascending'],
+.th-sort[aria-sort='descending'] {
+  color: var(--text-primary);
+}
+
+.th-sort__caret {
+  font-size: 8px;
+  color: var(--brand-text);
+}
+
+.col-num {
+  text-align: right;
+}
+
+/* anywhere rather than break-all: a scoped name only splits when it genuinely
+   does not fit, instead of mid-word at the first opportunity. */
+.cell-package {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.cell-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.versions {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.versions__more {
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* Distance leads with a ramp tick, so a column scan reads as a gradient with
+   the near rows standing out. */
+.distance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.distance__tick {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--depth-6);
+}
+
+.distance__tick[data-depth='1'] { background: var(--depth-1); }
+.distance__tick[data-depth='2'] { background: var(--depth-2); }
+.distance__tick[data-depth='3'] { background: var(--depth-3); }
+.distance__tick[data-depth='4'] { background: var(--depth-4); }
+.distance__tick[data-depth='5'] { background: var(--depth-5); }
+
+.path-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.path-cell__hop {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path-cell__arrow {
+  color: var(--border-strong);
+  flex: none;
+}
+
+.path-cell__target {
+  color: var(--danger-text);
+  white-space: nowrap;
+}
+
+.path-cell__more {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+/* The target is the point of the cell, so it keeps its width and the hops
+   give way first. */
+.path-cell__target {
+  flex: none;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* ------------------------------------------------------------- slide-over */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(10, 11, 16, 0.45);
+  border: 0;
+  padding: 0;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--panel-width), 100vw);
+  background: var(--surface-overlay);
+  border-left: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-overlay);
+  animation: slide-in 0.18s ease-out;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: none;
+  }
+}
+
+.drawer__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.drawer__title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  word-break: break-all;
+}
+
+.drawer__sub {
+  margin-top: var(--space-1);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.drawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+
+.drawer__section + .drawer__section {
+  margin-top: var(--space-6);
+}
+
+.drawer__section-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+/* Route tabs: one per distinct chain, only rendered when there are several. */
+.routes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.route-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-canvas);
+  cursor: pointer;
+  text-align: left;
+}
+
+.route-tab:hover {
+  border-color: var(--border-strong);
+}
+
+.route-tab[aria-pressed='true'] {
+  border-color: var(--brand);
+  background: var(--brand-subtle);
+}
+
+/* Bundled dependencies come back from the registry as `parent>version>child`,
+   so a hop chain can run very long. It truncates; the title has the full one. */
+.route-tab__name {
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.route-tab__meta {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.version-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  max-height: 128px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.version-chip {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--surface-canvas);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.version-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.version-chip[aria-pressed='true'] {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--text-inverse);
+}
+
+/* ------------------------------------------------------- the path trace */
+
+/*
+ * The signature element. One vertical chain from the package you picked down
+ * to the compromised one, with the range each link declares sitting on the
+ * edge that it explains. This is the artifact people came for: it is the
+ * evidence that the reach is real, and it is quotable in a ticket.
+ */
+.trace {
+  position: relative;
+  padding-left: 26px;
+}
+
+.trace__step {
+  position: relative;
+  padding-bottom: var(--space-4);
+}
+
+.trace__step:last-child {
+  padding-bottom: 0;
+}
+
+.trace__step::before {
+  content: '';
+  position: absolute;
+  left: -26px;
+  top: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--depth-6);
+  box-shadow: 0 0 0 3px var(--surface-overlay);
+}
+
+.trace__step[data-depth='1']::before { background: var(--depth-1); }
+.trace__step[data-depth='2']::before { background: var(--depth-2); }
+.trace__step[data-depth='3']::before { background: var(--depth-3); }
+.trace__step[data-depth='4']::before { background: var(--depth-4); }
+.trace__step[data-depth='5']::before { background: var(--depth-5); }
+
+/* The connector runs from this node's dot to the next one's. */
+.trace__step::after {
+  content: '';
+  position: absolute;
+  left: -22px;
+  top: 16px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--border-default);
+}
+
+.trace__step:last-child::after {
+  display: none;
+}
+
+.trace__step--target::before {
+  width: 11px;
+  height: 11px;
+  left: -27px;
+  top: 4px;
+  border-radius: 2px;
+  background: var(--danger);
+  transform: rotate(45deg);
+}
+
+.trace__pkg {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  word-break: break-all;
+}
+
+.trace__step--target .trace__pkg {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
+.trace__version {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.trace__req {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 2px var(--space-2);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.trace__req code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-subtle);
+  color: var(--danger-text);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--eyebrow-tracking);
+  text-transform: uppercase;
+}
+
+.link {
+  color: var(--brand-text);
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.caveat {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+  .drawer {
+    width: 100vw;
+  }
+
+  .incident__name {
+    font-size: var(--text-2xl);
+  }
+}
+
+/* ------------------------------------------------------------------ graph */
+
+/*
+ * The graph is the one view that wants the whole window rather than a column
+ * of readable width, so it opts out of the page's max-width and fills the
+ * space under the top bar instead of growing with its content.
+ */
+.page--graph {
+  max-width: none;
+  height: calc(100vh - var(--topbar-height));
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.graph__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.graph__toolbar .searchbar {
+  flex: 0 1 300px;
+}
+
+.graph__toolbar .searchbar__input {
+  padding-right: var(--space-3);
+}
+
+.graph__status {
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* The chain can outgrow the bar on a deep expansion, and truncating it beats
+   pushing the zoom controls off the row. */
+.graph__chain {
+  display: block;
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.graph__note {
+  display: block;
+  font-size: var(--text-xs);
+}
+
+.graph__zoom {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.graph__stage {
+  flex: 1;
+  min-height: 320px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 1px 1px, var(--border-subtle) 1px, transparent 0) 0 0 / 24px 24px,
+    var(--surface-raised);
+  overflow: hidden;
+}
+
+.graph__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.graph__canvas.is-panning {
+  cursor: grabbing;
+}
+
+.gedge {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+
+.gheader__label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--eyebrow-tracking);
+  text-transform: uppercase;
+  fill: var(--text-secondary);
+}
+
+.gheader__count {
+  font-size: var(--text-xs);
+  text-anchor: end;
+  fill: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.gnode {
+  cursor: pointer;
+}
+
+.gnode__box {
+  fill: var(--surface-canvas);
+  stroke: var(--border-default);
+  stroke-width: 1;
+}
+
+.gnode:hover .gnode__box {
+  stroke: var(--brand);
+}
+
+.gnode.is-selected .gnode__box {
+  stroke: var(--brand);
+  stroke-width: 2;
+  fill: var(--brand-subtle);
+}
+
+.gnode--root .gnode__box {
+  stroke: var(--danger);
+  fill: var(--danger-subtle);
+}
+
+.gnode__name {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  fill: var(--text-primary);
+}
+
+.gnode--root .gnode__name {
+  fill: var(--danger-text);
+  font-weight: 600;
+}
+
+.gnode__meta {
+  font-size: var(--text-xs);
+  fill: var(--text-secondary);
+}
+
+.gnode__chevron {
+  fill: none;
+  stroke: var(--text-secondary);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.gnode.is-leaf {
+  cursor: default;
+}
+
+/* A drawn info mark rather than a typeset "i": at 8px radius the glyph was
+   ambiguous against the monospace package name right beside it. */
+.gnode__detail {
+  cursor: pointer;
+}
+
+.gnode__detail-ring {
+  fill: var(--surface-raised);
+  stroke: var(--border-default);
+  stroke-width: 1;
+}
+
+.gnode__detail-dot {
+  fill: var(--text-secondary);
+}
+
+.gnode__detail-stem {
+  stroke: var(--text-secondary);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.gnode__detail:hover .gnode__detail-ring,
+.gnode__detail:focus-visible .gnode__detail-ring {
+  fill: var(--brand-subtle);
+  stroke: var(--brand);
+}
+
+.gnode__detail:hover .gnode__detail-dot,
+.gnode__detail:focus-visible .gnode__detail-dot {
+  fill: var(--brand-text);
+}
+
+.gnode__detail:hover .gnode__detail-stem,
+.gnode__detail:focus-visible .gnode__detail-stem {
+  stroke: var(--brand-text);
+}
+
+.gnode--more .gnode__box {
+  fill: var(--surface-sunken);
+  stroke-dasharray: 4 3;
+}
+
+.gnode__more {
+  font-size: var(--text-xs);
+  text-anchor: middle;
+  fill: var(--text-secondary);
+}
+
+/* ---------------------------------------------------- graph: focus mode */
+
+.graph__chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 4px 4px var(--space-3);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-pill);
+  background: var(--brand-subtle);
+  font-size: var(--text-sm);
+}
+
+.graph__chip-label {
+  color: var(--text-secondary);
+}
+
+.graph__chip-name {
+  font-family: var(--font-mono);
+  color: var(--brand-text);
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph__chip-clear {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.graph__chip-clear:hover {
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+}
+
+/* The suggestion list overlays the stage rather than reflowing the toolbar. */
+.graph__suggest {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-overlay);
+}
+
+.graph__suggest-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.graph__suggest-item:hover {
+  background: var(--brand-subtle);
+}
+
+.graph__suggest-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph__suggest-meta,
+.graph__suggest-empty {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.graph__suggest-empty {
+  padding: var(--space-3);
+}
+
+.graph__legend {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  padding: var(--space-3) var(--space-4);
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.graph__legend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.graph__legend .routes {
+  margin-bottom: 0;
+}
+
+/* Focus mode nodes. The compromised package keeps the roots column's styling
+   so the two modes stay legible against each other; the traced package is the
+   one node the brand colour is spent on. */
+.gnode--target .gnode__box {
+  fill: var(--danger-subtle);
+  stroke: var(--danger);
+}
+
+.gnode--target .gnode__name {
+  fill: var(--danger-text);
+  font-weight: 600;
+}
+
+.gnode--source .gnode__box {
+  fill: var(--brand-subtle);
+  stroke: var(--brand);
+  stroke-width: 2;
+}
+
+.gnode--source .gnode__name {
+  fill: var(--brand-text);
+  font-weight: 600;
+}
+
+.gnode--target,
+.gnode--source {
+  cursor: default;
+}
+
+/* Dimming rather than hiding: the shape of the full route set stays readable
+   behind the highlighted one. */
+.gnode.is-dim {
+  opacity: 0.25;
+}
+
+.gedge.is-dim {
+  opacity: 0.2;
+}
+
+/* The stage hosts an absolutely positioned empty state, so it anchors it. */
+.graph__stage {
+  position: relative;
+}
+
+.graph__overlay {
+  position: absolute;
+  top: 25%;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 46ch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-raised);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.graph__suggest-head {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.gedge__head {
+  fill: var(--border-strong);
+}
+
+.about {
+  margin-top: var(--space-6);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.about__toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand-text);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.about__toggle:hover {
+  text-decoration: underline;
+}
+
+.about__list {
+  max-width: 90ch;
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}

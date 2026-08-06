@@ -7,7 +7,7 @@ import (
 )
 
 func newVisualizeCmd() *cobra.Command {
-	var port int
+	var opts viewer.Options
 
 	cmd := &cobra.Command{
 		Use:     "visualize <blast-radius-output.json>",
@@ -24,11 +24,13 @@ Example:
   blast-radius visualize results.json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return viewer.Serve(args[0], port)
+			return viewer.Serve(args[0], opts)
 		},
 	}
 
-	cmd.Flags().IntVar(&port, "port", 8080, "port to serve on")
+	cmd.Flags().IntVar(&opts.Port, "port", 8080, "port to serve on")
+	cmd.Flags().StringVar(&opts.AssetsDir, "assets-dir", "", "serve the UI from this directory instead of the embedded copy (development)")
+	_ = cmd.Flags().MarkHidden("assets-dir")
 
 	return cmd
 }
