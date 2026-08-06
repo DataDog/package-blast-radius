@@ -105,8 +105,6 @@ select {
   align-items: center;
   gap: var(--space-5);
   height: var(--topbar-height);
-  max-width: var(--page-max);
-  margin: 0 auto;
   padding: 0 var(--space-5);
 }
 
@@ -1354,7 +1352,15 @@ table.data tbody tr[aria-selected='true'] td {
   fill: none;
   stroke: var(--border-strong);
   stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
+
+.gedge.is-lit {
+  stroke: var(--brand);
+  stroke-width: 2.25;
+}
+
 
 .gheader__label {
   font-size: var(--text-xs);
@@ -1412,12 +1418,55 @@ table.data tbody tr[aria-selected='true'] td {
   fill: var(--text-secondary);
 }
 
-.gnode__chevron {
-  fill: none;
+/* The expansion control. Always on a node's left edge, because expanding
+   always adds a column to the left. */
+.gnode__grow {
+  cursor: pointer;
+}
+
+.gnode__grow.is-static {
+  pointer-events: none;
+}
+
+.gnode__grow-ring {
+  fill: var(--surface-raised);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.gnode__grow-bar {
   stroke: var(--text-secondary);
-  stroke-width: 1.5;
+  stroke-width: 1.6;
   stroke-linecap: round;
-  stroke-linejoin: round;
+}
+
+.gnode__grow.is-open .gnode__grow-ring {
+  fill: var(--brand-subtle);
+  stroke: var(--brand);
+}
+
+.gnode__grow.is-open .gnode__grow-bar {
+  stroke: var(--brand-text);
+}
+
+.gnode__grow:not(.is-static):hover .gnode__grow-ring,
+.gnode__grow:not(.is-static):focus-visible .gnode__grow-ring {
+  fill: var(--brand-subtle);
+  stroke: var(--brand);
+}
+
+.gnode__grow:not(.is-static):hover .gnode__grow-bar,
+.gnode__grow:not(.is-static):focus-visible .gnode__grow-bar {
+  stroke: var(--brand-text);
+}
+
+.gnode__grow.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.gnode__grow.is-loading {
+  opacity: 0.5;
 }
 
 .gnode.is-leaf {
@@ -1613,6 +1662,28 @@ table.data tbody tr[aria-selected='true'] td {
   font-weight: 600;
 }
 
+/* Pulled in by expanding, so not part of a recorded route to a compromised
+   package. The dashed edge is what says so. */
+.gnode--upstream .gnode__box {
+  fill: var(--surface-canvas);
+  stroke: var(--border-strong);
+  stroke-dasharray: 5 3;
+}
+
+.gnode--fold .gnode__box,
+.gnode--more-upstream .gnode__box {
+  fill: var(--surface-sunken);
+  stroke: var(--border-default);
+  stroke-dasharray: 4 3;
+}
+
+.gnode--fold .gnode__name,
+.gnode--more-upstream .gnode__name {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  fill: var(--text-secondary);
+}
+
 .gnode--target,
 .gnode--source {
   cursor: default;
@@ -1662,8 +1733,16 @@ table.data tbody tr[aria-selected='true'] td {
   color: var(--text-secondary);
 }
 
+/* One shared marker serves every edge, so the head takes the colour of the
+   stroke it terminates rather than a fixed one. */
 .gedge__head {
-  fill: var(--border-strong);
+  fill: context-stroke;
+}
+
+@supports not (fill: context-stroke) {
+  .gedge__head {
+    fill: var(--border-strong);
+  }
 }
 
 .about {

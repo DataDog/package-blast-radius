@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -272,6 +273,27 @@ func TestAPIPackageDetail(t *testing.T) {
 	}
 	if hops := byID.Routes[1].Hops; !slices.Equal(hops, []string{"@scope/pkg"}) {
 		t.Errorf("second route hops = %v", hops)
+	}
+}
+
+// The graph view offers an expansion control per node, and withholds it where
+// nothing depends on the package. That decision is made from these counts, so
+// the detail response has to carry one for the package and for every hop.
+func TestAPIPackageDetailCountsDependents(t *testing.T) {
+	srv := serveFixture(t)
+
+	var pkg packageResponse
+	getJSON(t, srv, "/api/package?name=deep-dep", &pkg)
+
+	want := map[string]int{"deep-dep": 0, "tremendous": 1, "@scope/pkg": 1}
+	if !maps.Equal(pkg.DependentCounts, want) {
+		t.Errorf("dependent_counts = %v, want %v", pkg.DependentCounts, want)
+	}
+
+	var hop packageResponse
+	getJSON(t, srv, "/api/package?name=tremendous", &hop)
+	if got := hop.DependentCounts["tremendous"]; got != 1 {
+		t.Errorf("deep-dep depends on tremendous, so its count should be 1, got %d", got)
 	}
 }
 

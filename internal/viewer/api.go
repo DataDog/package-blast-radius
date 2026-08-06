@@ -93,6 +93,11 @@ type packageResponse struct {
 	Targets               []string        `json:"targets"`
 	RoutesTotal           int             `json:"routes_total"`
 	Routes                []routeResponse `json:"routes"`
+
+	// Populated only by /api/package: how many packages depend on the traced
+	// package and on each of its hops. The graph view expands nodes upward, and
+	// this saves it a request per node just to find out there is nothing there.
+	DependentCounts map[string]int `json:"dependent_counts,omitempty"`
 }
 
 type packageListResponse struct {
@@ -428,6 +433,7 @@ func (s *store) handlePackage(w http.ResponseWriter, r *http.Request) {
 	for i := range p.Routes {
 		resp.Routes = append(resp.Routes, s.routeResponse(&p.Routes[i]))
 	}
+	resp.DependentCounts = s.dependentCounts(name, resp.Routes)
 
 	// Default to the first route so a caller that just wants "show me this
 	// package" gets a usable path without a second round trip.

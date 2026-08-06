@@ -56,6 +56,32 @@ func (s *store) graphNode(name string) graphNode {
 	return n
 }
 
+// dependentCounts reports how many packages depend on the named package and on
+// every hop of the given routes. A name the graph never recorded counts zero:
+// it is a leaf, not a missing entry.
+func (s *store) dependentCounts(name string, routes []routeResponse) map[string]int {
+	counts := make(map[string]int, len(routes)+1)
+	add := func(n string) {
+		if _, seen := counts[n]; seen {
+			return
+		}
+		id, known := s.nodeIDs[n]
+		if !known {
+			counts[n] = 0
+			return
+		}
+		counts[n] = len(s.dependents[id])
+	}
+
+	add(name)
+	for i := range routes {
+		for _, hop := range routes[i].Hops {
+			add(hop)
+		}
+	}
+	return counts
+}
+
 // graphRoots collapses the target list to one node per compromised package
 // name. The ranked list is already ordered by attributed packages, so
 // first-seen order is the ranking.
