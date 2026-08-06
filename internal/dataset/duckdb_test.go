@@ -2,7 +2,7 @@ package dataset
 
 import (
 	"context"
-	"errors"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,71 +11,86 @@ import (
 	"time"
 )
 
-// shardDir writes n empty shard files so the glob in buildDatabase has something
-// to find.
+// shardDir writes n real, tiny parquet shard files so buildDatabase's glob has
+// valid parquet to ingest, not just files matching the naming pattern.
 func shardDir(t *testing.T, prefix string, n int) string {
 	t.Helper()
 	dir := t.TempDir()
+	data := validParquetFixture(t)
 	for i := range n {
 		name := filepath.Join(dir, prefix+"-"+string(rune('a'+i))+".parquet")
-		if err := os.WriteFile(name, []byte("PAR1"), 0o644); err != nil {
+		if err := os.WriteFile(name, data, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	return dir
 }
 
+// openBuilt reopens a database buildDatabase produced, the way analyze does.
+func openBuilt(t *testing.T, dbPath string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("duckdb", dbPath+"?access_mode=read_only")
+	if err != nil {
+		t.Fatalf("opening built database: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+func hasIndex(t *testing.T, db *sql.DB, table, index string) bool {
+	t.Helper()
+	var name string
+	err := db.QueryRow(
+		`SELECT index_name FROM duckdb_indexes() WHERE table_name = ? AND index_name = ?`,
+		table, index,
+	).Scan(&name)
+	if err == sql.ErrNoRows {
+		return false
+	}
+	if err != nil {
+		t.Fatalf("querying duckdb_indexes(): %v", err)
+	}
+	return true
+}
+
+func hasTable(t *testing.T, db *sql.DB, table string) bool {
+	t.Helper()
+	var name string
+	err := db.QueryRow(
+		`SELECT table_name FROM information_schema.tables WHERE table_name = ?`, table,
+	).Scan(&name)
+	if err == sql.ErrNoRows {
+		return false
+	}
+	if err != nil {
+		t.Fatalf("querying information_schema.tables: %v", err)
+	}
+	return true
+}
+
 func TestBuildDatabaseCreatesTableAndIndex(t *testing.T) {
-	runner := &fakeRunner{}
 	parquetDir := shardDir(t, "npm-edges", 3)
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 
-	if err := buildDatabase(context.Background(), runner, parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err != nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err != nil {
 		t.Fatalf("buildDatabase: %v", err)
 	}
 
-	args := runner.allArgs()
-	if !strings.Contains(args, "CREATE TABLE edges") {
-		t.Errorf("duckdb was not asked to create the table:\n%s", args)
+	db := openBuilt(t, dbPath)
+	if !hasTable(t, db, "edges") {
+		t.Error("the edges table was not created")
 	}
 	// Without this index a reverse dependency lookup scans the whole table.
-	if !strings.Contains(args, "CREATE INDEX idx_depname ON edges(DepName)") {
-		t.Errorf("duckdb was not asked to create the DepName index:\n%s", args)
-	}
-	if !strings.Contains(args, filepath.Join(parquetDir, "npm-edges-*.parquet")) {
-		t.Errorf("the parquet glob is missing from the query:\n%s", args)
-	}
-}
-
-// duckdb draws an ANSI progress bar when its output is a terminal, which redraws
-// over the lines already on screen. Handing it something that is not an *os.File
-// makes os/exec give it a pipe, and duckdb stays quiet.
-func TestBuildDatabaseDoesNotGiveDuckDBTheTerminal(t *testing.T) {
-	runner := &fakeRunner{}
-	parquetDir := shardDir(t, "npm-edges", 1)
-	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
-
-	// os.Stderr is exactly what the command passes in real use.
-	if err := buildDatabase(context.Background(), runner, parquetDir, dbPath, "npm-edges", "", newReporter(os.Stderr, 1)); err != nil {
-		t.Fatalf("buildDatabase: %v", err)
+	if !hasIndex(t, db, "edges", "idx_depname") {
+		t.Error("the DepName index was not created")
 	}
 
-	if _, isFile := runner.runProgress.(*os.File); isFile {
-		t.Error("duckdb was handed the terminal directly, so it will draw its progress bar")
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM edges`).Scan(&count); err != nil {
+		t.Fatalf("querying edges: %v", err)
 	}
-}
-
-// Hiding the terminal must not hide duckdb's output, or a failing build would say
-// nothing about why.
-func TestPipedWriterForwardsEverything(t *testing.T) {
-	sink := &strings.Builder{}
-
-	piped := pipedWriter{sink}
-	if _, err := piped.Write([]byte("Error: out of memory\n")); err != nil {
-		t.Fatal(err)
-	}
-	if sink.String() != "Error: out of memory\n" {
-		t.Errorf("pipedWriter dropped output: %q", sink.String())
+	if count != 3 {
+		t.Errorf("edges has %d rows, want 3 (one per shard)", count)
 	}
 }
 
@@ -98,41 +113,43 @@ func TestHeartbeatReportsElapsedTime(t *testing.T) {
 }
 
 func TestBuildDatabaseRefusesAnEmptyDirectory(t *testing.T) {
-	runner := &fakeRunner{}
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 
-	err := buildDatabase(context.Background(), runner, t.TempDir(), dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1))
+	err := buildDatabase(context.Background(), t.TempDir(), dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1))
 	if err == nil {
 		t.Fatal("buildDatabase succeeded with no shards")
 	}
-	if len(runner.calls) != 0 {
-		t.Errorf("duckdb was invoked anyway: %v", runner.calls)
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Errorf("a database was created despite no shards existing")
 	}
 }
 
 // The prefix is what keeps two ecosystems' shards from being merged into one
 // database when they share a directory.
 func TestBuildDatabaseIgnoresOtherEcosystemsShards(t *testing.T) {
-	runner := &fakeRunner{}
 	parquetDir := shardDir(t, "pypi-edges", 2)
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 
-	if err := buildDatabase(context.Background(), runner, parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err == nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err == nil {
 		t.Fatal("buildDatabase used pypi shards to build an npm database")
 	}
 }
 
 func TestBuildDatabaseRemovesTheDatabaseWhenDuckDBFails(t *testing.T) {
-	runner := &fakeRunner{runErr: errors.New("out of memory")}
-	parquetDir := shardDir(t, "npm-edges", 1)
+	parquetDir := t.TempDir()
+	// Real parquet magic bytes without the rest of the format, so DuckDB's
+	// reader fails partway through instead of at the glob stage.
+	if err := os.WriteFile(filepath.Join(parquetDir, "npm-edges-a.parquet"), []byte("PAR1garbage"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 	// Stand in for the file duckdb would have started writing.
 	if err := os.WriteFile(dbPath, []byte("partial"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := buildDatabase(context.Background(), runner, parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err == nil {
-		t.Fatal("buildDatabase reported success after duckdb failed")
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err == nil {
+		t.Fatal("buildDatabase reported success on unreadable parquet")
 	}
 	// A leftover database would let a later analyze run query an incomplete graph.
 	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
@@ -146,82 +163,91 @@ func TestBuildDatabaseReplacesAnExistingDatabase(t *testing.T) {
 	if err := os.WriteFile(dbPath, []byte("old database"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runner := &fakeRunner{runHook: func(name string, args ...string) error {
-		if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
-			t.Errorf("the previous database was still present when duckdb started: %v", err)
-		}
-		return os.WriteFile(dbPath, []byte("new database"), 0o644)
-	}}
 
-	if err := buildDatabase(context.Background(), runner, parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err != nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err != nil {
 		t.Fatalf("buildDatabase: %v", err)
 	}
-	got, err := os.ReadFile(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "new database" {
-		t.Errorf("database contents = %q, want the newly built database", got)
+
+	db := openBuilt(t, dbPath)
+	if !hasTable(t, db, "edges") {
+		t.Error("the old database was not replaced with a freshly built one")
 	}
 }
 
 func TestBuildDatabaseCreatesVersionsTableWhenShardsPresent(t *testing.T) {
-	runner := &fakeRunner{}
 	parquetDir := shardDir(t, "npm-edges", 1)
 	// The version shards are written under the same directory as the edge
 	// shards, exactly as they land after download-data's two exports.
+	data := validParquetFixture(t)
 	for i := range 2 {
 		name := filepath.Join(parquetDir, "npm-versions-"+string(rune('a'+i))+".parquet")
-		if err := os.WriteFile(name, []byte("PAR1"), 0o644); err != nil {
+		if err := os.WriteFile(name, data, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 
-	if err := buildDatabase(context.Background(), runner, parquetDir, dbPath, "npm-edges", "npm-versions", newReporter(&strings.Builder{}, 1)); err != nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "npm-versions", newReporter(&strings.Builder{}, 1)); err != nil {
 		t.Fatalf("buildDatabase: %v", err)
 	}
 
-	args := runner.allArgs()
-	if !strings.Contains(args, "CREATE TABLE versions") {
-		t.Errorf("duckdb was not asked to create the versions table:\n%s", args)
+	db := openBuilt(t, dbPath)
+	if !hasTable(t, db, "versions") {
+		t.Error("the versions table was not created")
 	}
-	if !strings.Contains(args, filepath.Join(parquetDir, "npm-versions-*.parquet")) {
-		t.Errorf("the versions parquet glob is missing from the query:\n%s", args)
+	if !hasIndex(t, db, "versions", "idx_version_name") {
+		t.Error("the versions (Name, Version) index was not created")
 	}
 }
 
 func TestBuildDatabaseSkipsVersionsTableWhenNoShardsExist(t *testing.T) {
-	runner := &fakeRunner{}
 	parquetDir := shardDir(t, "npm-edges", 1)
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 
-	if err := buildDatabase(context.Background(), runner, parquetDir, dbPath, "npm-edges", "npm-versions", newReporter(&strings.Builder{}, 1)); err != nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "npm-versions", newReporter(&strings.Builder{}, 1)); err != nil {
 		t.Fatalf("buildDatabase: %v", err)
 	}
 
-	if strings.Contains(runner.allArgs(), "CREATE TABLE versions") {
-		t.Error("duckdb was asked to create a versions table with no shards on disk")
+	db := openBuilt(t, dbPath)
+	if hasTable(t, db, "versions") {
+		t.Error("a versions table was created with no shards on disk")
 	}
 }
 
 func TestCountRows(t *testing.T) {
-	runner := &fakeRunner{output: "  549213\n"}
+	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
+	setup, err := sql.Open("duckdb", dbPath)
+	if err != nil {
+		t.Fatalf("opening db: %v", err)
+	}
+	if _, err := setup.Exec(`CREATE TABLE edges(Name VARCHAR); INSERT INTO edges VALUES ('a'), ('b'), ('c')`); err != nil {
+		t.Fatalf("seeding db: %v", err)
+	}
+	if err := setup.Close(); err != nil {
+		t.Fatal(err)
+	}
 
-	got, err := countRows(context.Background(), runner, "db.duckdb")
+	got, err := countRows(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("countRows: %v", err)
 	}
-	if got != 549213 {
-		t.Errorf("countRows = %d, want 549213", got)
+	if got != 3 {
+		t.Errorf("countRows = %d, want 3", got)
 	}
 }
 
-func TestCountRowsRejectsNonNumericOutput(t *testing.T) {
-	runner := &fakeRunner{output: "Error: no such table: edges\n"}
+func TestCountRowsFailsWithoutEdgesTable(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
+	setup, err := sql.Open("duckdb", dbPath)
+	if err != nil {
+		t.Fatalf("opening db: %v", err)
+	}
+	if err := setup.Close(); err != nil {
+		t.Fatal(err)
+	}
 
-	if _, err := countRows(context.Background(), runner, "db.duckdb"); err == nil {
-		t.Fatal("countRows succeeded on a duckdb error message")
+	if _, err := countRows(context.Background(), dbPath); err == nil {
+		t.Fatal("countRows succeeded against a database with no edges table")
 	}
 }
 

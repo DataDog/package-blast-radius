@@ -1,12 +1,14 @@
 package dataset
 
 import (
-	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -73,7 +75,7 @@ func newFakeGCP(t *testing.T) *fakeGCP {
 		bucketLocation: "US",
 		scalarValue:    "2026-03-23",
 		jobState:       "DONE",
-		objectContent:  []byte("PAR1fake-parquet-bytes"),
+		objectContent:  validParquetFixture(t),
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.server.Close)
@@ -252,52 +254,32 @@ func writeGoogleError(w http.ResponseWriter, status int, message, reason string)
 	})
 }
 
-// fakeRunner records duckdb invocations instead of running them.
-type fakeRunner struct {
-	mu    sync.Mutex
-	calls [][]string
-	// runProgress is the writer Run was handed, kept so a test can check what
-	// duckdb's own output would have been attached to.
-	runProgress io.Writer
-	output      string
-	runErr      error
-	runHook     func(name string, args ...string) error
-}
+// validParquetFixture returns the bytes of a real, tiny parquet file with a
+// superset of the columns buildDatabase's edges and versions tables need
+// (DepName for the edges index, Name+Version for the versions index), so the
+// same fixture can stand in for whichever shard a test downloads.
+func validParquetFixture(t *testing.T) []byte {
+	t.Helper()
 
-func (f *fakeRunner) record(name string, args []string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.calls = append(f.calls, append([]string{name}, args...))
-}
-
-func (f *fakeRunner) Run(ctx context.Context, progress io.Writer, name string, args ...string) error {
-	f.record(name, args)
-	f.mu.Lock()
-	f.runProgress = progress
-	f.mu.Unlock()
-	if f.runHook != nil {
-		if err := f.runHook(name, args...); err != nil {
-			return err
-		}
+	path := filepath.Join(t.TempDir(), "fixture.parquet")
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatalf("opening in-memory duckdb: %v", err)
 	}
-	return f.runErr
-}
+	defer db.Close()
 
-func (f *fakeRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
-	f.record(name, args)
-	if f.output == "" {
-		return []byte("0\n"), nil
+	stmt := fmt.Sprintf(`
+		CREATE TABLE fixture(Name VARCHAR, Version VARCHAR, DepName VARCHAR, Requirement VARCHAR, PublishedAt TIMESTAMP);
+		INSERT INTO fixture VALUES ('a', '1.0.0', 'axios', '^1.0.0', '2024-01-02 03:04:05');
+		COPY fixture TO '%s' (FORMAT PARQUET);
+	`, path)
+	if _, err := db.Exec(stmt); err != nil {
+		t.Fatalf("writing parquet fixture: %v", err)
 	}
-	return []byte(f.output), nil
-}
 
-func (f *fakeRunner) allArgs() string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var sb strings.Builder
-	for _, call := range f.calls {
-		sb.WriteString(strings.Join(call, " "))
-		sb.WriteString("\n")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading parquet fixture: %v", err)
 	}
-	return sb.String()
+	return data
 }

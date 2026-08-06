@@ -2,20 +2,21 @@ package dataset
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
+
+	_ "github.com/duckdb/duckdb-go/v2"
 )
 
 // buildDatabase creates an indexed DuckDB database from the parquet shards in
 // parquetDir. The index on DepName is what makes reverse dependency lookup fast,
 // and it is the whole reason for materialising a database instead of querying the
 // parquet files directly.
-func buildDatabase(ctx context.Context, runner Runner, parquetDir, dbPath, parquetPrefix, versionsPrefix string, r *reporter) error {
+func buildDatabase(ctx context.Context, parquetDir, dbPath, parquetPrefix, versionsPrefix string, r *reporter) error {
 	shards, err := filepath.Glob(filepath.Join(parquetDir, parquetPrefix+"-*.parquet"))
 	if err != nil {
 		return err
@@ -56,14 +57,21 @@ func buildDatabase(ctx context.Context, runner Runner, parquetDir, dbPath, parqu
 		}
 	}
 
+	db, err := sql.Open("duckdb", dbPath)
+	if err != nil {
+		return fmt.Errorf("opening %s: %w", dbPath, err)
+	}
+	defer db.Close()
+
 	start := time.Now()
 	stopHeartbeat := r.heartbeat("still building", heartbeatInterval)
-	err = runner.Run(ctx, pipedWriter{r.writer()}, "duckdb", dbPath, "-c", query)
+	_, err = db.ExecContext(ctx, query)
 	stopHeartbeat()
 
 	if err != nil {
 		// Leaving a partially built database behind would let a later analyze run
 		// silently query an incomplete graph.
+		db.Close()
 		os.Remove(dbPath)
 		return fmt.Errorf("building database: %w", err)
 	}
@@ -73,23 +81,18 @@ func buildDatabase(ctx context.Context, runner Runner, parquetDir, dbPath, parqu
 
 // countRows reports the edge count, which is the one number that tells you the
 // build actually ingested the whole snapshot.
-func countRows(ctx context.Context, runner Runner, dbPath string) (int64, error) {
-	out, err := runner.Output(ctx, "duckdb", dbPath, "-csv", "-noheader", "-c", "SELECT COUNT(*) FROM edges;")
+func countRows(ctx context.Context, dbPath string) (int64, error) {
+	db, err := sql.Open("duckdb", dbPath+"?access_mode=read_only")
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("opening %s: %w", dbPath, err)
 	}
-	return strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	defer db.Close()
+
+	var count int64
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM edges").Scan(&count)
+	return count, err
 }
 
 func escapeSingleQuotes(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
-
-// pipedWriter hides an *os.File behind a plain io.Writer, which makes os/exec
-// give the child a pipe instead of handing it the terminal directly. duckdb draws
-// an ANSI progress bar whenever its output is a terminal, and that bar redraws
-// over the progress lines already on screen and leaves the terminal scrolled and
-// half-cleared. Its output still reaches the user, so real errors are unaffected.
-type pipedWriter struct{ w io.Writer }
-
-func (p pipedWriter) Write(b []byte) (int, error) { return p.w.Write(b) }

@@ -73,10 +73,6 @@ func (r *reporter) elapsed() time.Duration {
 	return time.Since(r.start).Round(time.Second)
 }
 
-// writer exposes the underlying stream for output this package does not format
-// itself, which is duckdb's.
-func (r *reporter) writer() io.Writer { return r.out }
-
 // heartbeatInterval is how often a long step reports that it is still going.
 const heartbeatInterval = 30 * time.Second
 

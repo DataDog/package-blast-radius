@@ -13,10 +13,10 @@ import (
 	"github.com/DataDog/package-blast-radius/internal/blast"
 )
 
-// downloadFixture wires a Download call against the fake APIs and a fake duckdb.
+// downloadFixture wires a Download call against the fake APIs and a real duckdb
+// database built on disk under dataDir.
 type downloadFixture struct {
 	gcp      *fakeGCP
-	runner   *fakeRunner
 	progress *bytes.Buffer
 	dataDir  string
 }
@@ -25,10 +25,28 @@ func newDownloadFixture(t *testing.T) *downloadFixture {
 	t.Helper()
 	return &downloadFixture{
 		gcp:      newFakeGCP(t),
-		runner:   &fakeRunner{},
 		progress: &bytes.Buffer{},
 		dataDir:  t.TempDir(),
 	}
+}
+
+// dbPath is where Download builds the database for this fixture's ecosystem.
+func (f *downloadFixture) dbPath() string {
+	return filepath.Join(f.dataDir, blast.NPM.DBName())
+}
+
+// databaseBuilt reports whether a database was built at dbPath.
+func (f *downloadFixture) databaseBuilt(t *testing.T) bool {
+	t.Helper()
+	_, err := os.Stat(f.dbPath())
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	t.Fatalf("stat %s: %v", f.dbPath(), err)
+	return false
 }
 
 // run drives Download with the given answers piped to every prompt.
@@ -42,7 +60,6 @@ func (f *downloadFixture) run(t *testing.T, answers string, mutate func(*Options
 		DataDir:          f.dataDir,
 		Stdin:            strings.NewReader(answers),
 		Progress:         f.progress,
-		Runner:           f.runner,
 		forceInteractive: true,
 	})
 	if mutate != nil {
@@ -79,8 +96,8 @@ func TestDownloadRunsNothingBillableWhenTheUserDeclines(t *testing.T) {
 	if jobs := f.gcp.billableJobs(); len(jobs) != 0 {
 		t.Errorf("declining still issued %d billable BigQuery requests: %+v", len(jobs), jobs)
 	}
-	if len(f.runner.calls) != 0 {
-		t.Errorf("declining still invoked duckdb: %v", f.runner.calls)
+	if f.databaseBuilt(t) {
+		t.Error("declining still built a database")
 	}
 }
 
@@ -231,7 +248,6 @@ func TestDownloadForceStillNeedsConsentToDelete(t *testing.T) {
 func TestDownloadHappyPathBuildsTheDatabase(t *testing.T) {
 	f := newDownloadFixture(t)
 	f.shardsAfterExport("blast-radius/2026-03-23/", 4)
-	f.runner.output = "549213\n"
 
 	// Two export queries now run: edges, then publish dates.
 	if err := f.run(t, "y\ny\n", nil); err != nil {
@@ -241,11 +257,16 @@ func TestDownloadHappyPathBuildsTheDatabase(t *testing.T) {
 	if jobs := f.gcp.billableJobs(); len(jobs) != 4 {
 		t.Errorf("ran %d billable jobs, want 4 (edges query+extract, versions query+extract)", len(jobs))
 	}
-	if !strings.Contains(f.runner.allArgs(), "CREATE TABLE edges") {
-		t.Errorf("the database was not built:\n%s", f.runner.allArgs())
+	if !f.databaseBuilt(t) {
+		t.Fatal("the database was not built")
+	}
+	db := openBuilt(t, f.dbPath())
+	if !hasTable(t, db, "edges") {
+		t.Error("the edges table was not created")
 	}
 	out := f.progress.String()
-	if !strings.Contains(out, "549,213") {
+	// One row per downloaded shard.
+	if !strings.Contains(out, "rows") || !strings.Contains(out, "4") {
 		t.Errorf("the row count was not reported:\n%s", out)
 	}
 	// Shards are scoped by snapshot date so two exports never mix locally.
@@ -281,8 +302,9 @@ func TestBuildOnlyMakesNoCloudCallsAndKeepsShards(t *testing.T) {
 	if err := os.MkdirAll(parquetDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	data := validParquetFixture(t)
 	for _, name := range []string{"npm-edges-a.parquet", "npm-edges-b.parquet"} {
-		if err := os.WriteFile(filepath.Join(parquetDir, name), []byte("PAR1"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(parquetDir, name), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -311,8 +333,8 @@ func TestSkipBuildNeverInvokesDuckDB(t *testing.T) {
 	if err := f.run(t, "y\ny\n", func(o *Options) { o.SkipBuild = true }); err != nil {
 		t.Fatalf("Download: %v", err)
 	}
-	if len(f.runner.calls) != 0 {
-		t.Errorf("--skip-build invoked duckdb: %v", f.runner.calls)
+	if f.databaseBuilt(t) {
+		t.Error("--skip-build built a database")
 	}
 	// The user has to be told how to finish the job later.
 	if !strings.Contains(f.progress.String(), "--build-only") {
@@ -395,7 +417,6 @@ func TestDownloadRefusesNonInteractivelyWithoutYes(t *testing.T) {
 		DataDir:      f.dataDir,
 		Stdin:        strings.NewReader("y\n"),
 		Progress:     f.progress,
-		Runner:       f.runner,
 	})
 
 	err := Download(context.Background(), opts)
@@ -424,7 +445,6 @@ func TestDownloadAutoApproveRunsEndToEnd(t *testing.T) {
 		AutoApprove:  true,
 		Stdin:        strings.NewReader(""), // nothing to read from
 		Progress:     f.progress,
-		Runner:       f.runner,
 	})
 
 	if err := Download(context.Background(), opts); err != nil {
@@ -445,8 +465,8 @@ func TestDownloadFailsWhenTheExportProducedNothing(t *testing.T) {
 	if err == nil {
 		t.Fatal("Download succeeded with no shards in the bucket")
 	}
-	if len(f.runner.calls) != 0 {
-		t.Errorf("tried to build a database from nothing: %v", f.runner.calls)
+	if f.databaseBuilt(t) {
+		t.Error("tried to build a database from nothing")
 	}
 }
 

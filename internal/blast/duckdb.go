@@ -1,28 +1,52 @@
 package blast
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
+	"database/sql"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
+	"runtime"
 	"strings"
 	"time"
+
+	_ "github.com/duckdb/duckdb-go/v2"
 )
 
+// DuckDBSource queries a DuckDB database over a single native connection kept
+// open for the lifetime of a run. Reusing one connection (rather than opening
+// a fresh one per query) is what lets the frontier temp tables below survive
+// across depths.
 type DuckDBSource struct {
-	dbPath string
+	db   *sql.DB
+	conn *sql.Conn
 }
 
 func NewDuckDBSource(dbPath string) (*DuckDBSource, error) {
 	if _, err := os.Stat(dbPath); err != nil {
 		return nil, fmt.Errorf("database not found: %s", dbPath)
 	}
-	if _, err := exec.LookPath("duckdb"); err != nil {
-		return nil, fmt.Errorf("duckdb CLI not found in PATH")
+
+	dsn := fmt.Sprintf("%s?access_mode=read_only&threads=%d", dbPath, runtime.NumCPU())
+	db, err := sql.Open("duckdb", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("opening database: %w", err)
 	}
-	return &DuckDBSource{dbPath: dbPath}, nil
+
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("opening database: %w", err)
+	}
+
+	return &DuckDBSource{db: db, conn: conn}, nil
+}
+
+func (s *DuckDBSource) Close() error {
+	err := s.conn.Close()
+	if dbErr := s.db.Close(); err == nil {
+		err = dbErr
+	}
+	return err
 }
 
 type RawDependent struct {
@@ -32,59 +56,43 @@ type RawDependent struct {
 	Requirement      string
 }
 
-type duckdbRow struct {
-	Name        string `json:"Name"`
-	Version     string `json:"Version"`
-	DepName     string `json:"DepName"`
-	Requirement string `json:"Requirement"`
-}
-
 // QueryDirectDependents hands yield every (package, version, requirement) tuple
 // that directly depends on the given target package name.
 func (s *DuckDBSource) QueryDirectDependents(targetName string, yield func(RawDependent) error) error {
-	query := fmt.Sprintf(
-		`SELECT Name, Version, DepName, Requirement FROM edges WHERE DepName = '%s';`,
-		escapeSingleQuotes(targetName),
-	)
-	return s.streamQuery(query, yield)
+	rows, err := s.conn.QueryContext(context.Background(),
+		`SELECT Name, Version, DepName, Requirement FROM edges WHERE DepName = ?`, targetName)
+	if err != nil {
+		return fmt.Errorf("duckdb query failed: %w", err)
+	}
+	return scanDependentRows(rows, yield)
 }
 
 // QueryDependentsOfNames hands yield every edge whose DepName is in the given
-// set of names. Uses a temp CSV file to avoid massive IN clauses.
+// set of names. The names are bulk-loaded into a temp table via the appender
+// API rather than a large IN/CSV clause, so DuckDB can plan a hash join
+// instead of parsing a giant query or CSV file.
 func (s *DuckDBSource) QueryDependentsOfNames(names []string, yield func(RawDependent) error) error {
 	if len(names) == 0 {
 		return nil
 	}
 
-	tmpFile, err := os.CreateTemp("", "blast-radius-frontier-*.csv")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
+	ctx := context.Background()
+	if _, err := s.conn.ExecContext(ctx, `CREATE OR REPLACE TEMP TABLE frontier(name VARCHAR)`); err != nil {
+		return fmt.Errorf("creating frontier table: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
-
-	for _, name := range names {
-		fmt.Fprintln(tmpFile, name)
+	if err := s.appendStrings("frontier", names); err != nil {
+		return fmt.Errorf("loading frontier table: %w", err)
 	}
-	tmpFile.Close()
 
-	query := fmt.Sprintf(`
+	rows, err := s.conn.QueryContext(ctx, `
 		SELECT e.Name, e.Version, e.DepName, e.Requirement
 		FROM edges e
-		SEMI JOIN read_csv('%s', columns={'name': 'VARCHAR'}, header=false, auto_detect=false) t
-		ON e.DepName = t.name;
-	`, tmpFile.Name())
-
-	return s.streamQuery(query, yield)
-}
-
-// publishDateLayouts covers the timestamp shapes duckdb's JSON output uses for
-// a TIMESTAMP column, which vary with fractional seconds and an optional zone.
-var publishDateLayouts = []string{
-	"2006-01-02 15:04:05.999999-07",
-	"2006-01-02 15:04:05.999999",
-	"2006-01-02T15:04:05.999999",
-	"2006-01-02 15:04:05",
-	"2006-01-02T15:04:05",
+		SEMI JOIN frontier f ON e.DepName = f.name
+	`)
+	if err != nil {
+		return fmt.Errorf("duckdb query failed: %w", err)
+	}
+	return scanDependentRows(rows, yield)
 }
 
 // QueryPublishedAt looks up when each of pkgs was published, keyed by
@@ -96,173 +104,94 @@ func (s *DuckDBSource) QueryPublishedAt(pkgs []PackageVersion) (map[string]time.
 		return nil, nil
 	}
 
-	tmpFile, err := os.CreateTemp("", "blast-radius-pubdates-*.csv")
-	if err != nil {
-		return nil, fmt.Errorf("creating temp file: %w", err)
+	ctx := context.Background()
+	if _, err := s.conn.ExecContext(ctx, `CREATE OR REPLACE TEMP TABLE pubdate_lookup(name VARCHAR, version VARCHAR)`); err != nil {
+		return nil, fmt.Errorf("creating lookup table: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
-
-	for _, pv := range pkgs {
-		fmt.Fprintf(tmpFile, "%s,%s\n", csvField(pv.Name), csvField(pv.Version))
+	if err := s.appendPackageVersions("pubdate_lookup", pkgs); err != nil {
+		return nil, fmt.Errorf("loading lookup table: %w", err)
 	}
-	tmpFile.Close()
 
-	query := fmt.Sprintf(`
+	rows, err := s.conn.QueryContext(ctx, `
 		SELECT v.Name, v.Version, v.PublishedAt
 		FROM versions v
-		JOIN read_csv('%s', columns={'name': 'VARCHAR', 'version': 'VARCHAR'}, header=false, auto_detect=false) t
-		ON v.Name = t.name AND v.Version = t.version;
-	`, tmpFile.Name())
-
-	cmd := exec.Command("duckdb", s.dbPath, "-json", "-c", query)
-	var stderr bytes.Buffer
-	cmd.Stderr = &limitedWriter{w: &stderr, remaining: stderrLimit}
-	out, err := cmd.Output()
+		JOIN pubdate_lookup t ON v.Name = t.name AND v.Version = t.version
+	`)
 	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
+		msg := err.Error()
 		if strings.Contains(msg, "does not exist") || strings.Contains(msg, "Table with name versions") {
 			return nil, nil
 		}
-		if msg != "" {
-			return nil, fmt.Errorf("duckdb query failed: %s", msg)
-		}
 		return nil, fmt.Errorf("duckdb query failed: %w", err)
 	}
+	defer rows.Close()
 
-	var rows []struct {
-		Name        string `json:"Name"`
-		Version     string `json:"Version"`
-		PublishedAt string `json:"PublishedAt"`
-	}
-	if len(bytes.TrimSpace(out)) > 0 {
-		if err := json.Unmarshal(out, &rows); err != nil {
-			return nil, fmt.Errorf("parsing duckdb output: %w", err)
+	result := make(map[string]time.Time)
+	for rows.Next() {
+		var name, version string
+		var publishedAt time.Time
+		if err := rows.Scan(&name, &version, &publishedAt); err != nil {
+			return nil, fmt.Errorf("scanning duckdb row: %w", err)
 		}
+		result[name+"@"+version] = publishedAt
 	}
-
-	result := make(map[string]time.Time, len(rows))
-	for _, row := range rows {
-		t, ok := parsePublishDate(row.PublishedAt)
-		if !ok {
-			continue
-		}
-		result[row.Name+"@"+row.Version] = t
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("duckdb query failed: %w", err)
 	}
 	return result, nil
 }
 
-func parsePublishDate(s string) (time.Time, bool) {
-	for _, layout := range publishDateLayouts {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, true
+// scanDependentRows reads rows as they arrive rather than collecting them
+// first: a popular package has millions of direct dependents, and holding a
+// whole depth's worth of them costs gigabytes.
+func scanDependentRows(rows *sql.Rows, yield func(RawDependent) error) error {
+	defer rows.Close()
+	for rows.Next() {
+		var d RawDependent
+		if err := rows.Scan(&d.DependentName, &d.DependentVersion, &d.TargetName, &d.Requirement); err != nil {
+			return fmt.Errorf("scanning duckdb row: %w", err)
 		}
-	}
-	return time.Time{}, false
-}
-
-// csvField escapes a value for the unquoted CSV format QueryPublishedAt and
-// QueryDependentsOfNames write. Real npm package names and versions never
-// contain a comma, so this only guards against surprises.
-func csvField(s string) string {
-	return strings.ReplaceAll(s, ",", "")
-}
-
-// stderrLimit caps what is kept from a failing duckdb run, which is enough for
-// the error message without letting a chatty failure grow unbounded.
-const stderrLimit = 8 << 10
-
-// streamQuery runs a query and hands each row to yield as it is decoded, rather
-// than collecting the result. A popular package has millions of direct
-// dependents, so materialising one costs gigabytes before any filtering starts.
-func (s *DuckDBSource) streamQuery(query string, yield func(RawDependent) error) error {
-	cmd := exec.Command("duckdb", s.dbPath, "-json", "-c", query)
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &limitedWriter{w: &stderr, remaining: stderrLimit}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("duckdb query failed: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("duckdb query failed: %w", err)
-	}
-
-	decodeErr := decodeRows(stdout, yield)
-	// duckdb blocks on a full pipe if decoding stopped early, so drain the rest
-	// before waiting for it to exit.
-	io.Copy(io.Discard, stdout)
-
-	if err := cmd.Wait(); err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return fmt.Errorf("duckdb query failed: %s", msg)
-		}
-		return fmt.Errorf("duckdb query failed: %w", err)
-	}
-	return decodeErr
-}
-
-// decodeRows reads the JSON array duckdb writes one element at a time.
-func decodeRows(r io.Reader, yield func(RawDependent) error) error {
-	dec := json.NewDecoder(r)
-
-	open, err := dec.Token()
-	if err == io.EOF {
-		return nil // duckdb prints nothing at all for an empty result
-	}
-	if err != nil {
-		return fmt.Errorf("parsing duckdb output: %w", err)
-	}
-	if open != json.Delim('[') {
-		return fmt.Errorf("parsing duckdb output: got %v, want a JSON array", open)
-	}
-
-	for dec.More() {
-		var row duckdbRow
-		if err := dec.Decode(&row); err != nil {
-			return fmt.Errorf("parsing duckdb output: %w", err)
-		}
-		err := yield(RawDependent{
-			DependentName:    row.Name,
-			DependentVersion: row.Version,
-			TargetName:       row.DepName,
-			Requirement:      row.Requirement,
-		})
-		if err != nil {
+		if err := yield(d); err != nil {
 			return err
+		}
+	}
+	return rows.Err()
+}
+
+// appendStrings bulk-loads a single VARCHAR column into table, which must be
+// a temp table created by the caller with a name we control (never user
+// input), since it is interpolated directly into the INSERT statement.
+//
+// The DuckDB appender API is the usual fast path for bulk loads, but it
+// refuses to attach to a connection opened in read-only mode even when the
+// target table is a session-local temp table, so a prepared multi-row
+// INSERT is used instead.
+func (s *DuckDBSource) appendStrings(table string, values []string) error {
+	ctx := context.Background()
+	stmt, err := s.conn.PrepareContext(ctx, fmt.Sprintf(`INSERT INTO %s VALUES (?)`, table))
+	if err != nil {
+		return fmt.Errorf("preparing insert: %w", err)
+	}
+	defer stmt.Close()
+	for _, v := range values {
+		if _, err := stmt.ExecContext(ctx, v); err != nil {
+			return fmt.Errorf("inserting row: %w", err)
 		}
 	}
 	return nil
 }
 
-type limitedWriter struct {
-	w         io.Writer
-	remaining int
-}
-
-// Write reports every byte as accepted so the writer never stalls its producer,
-// while only the first l.remaining of them reach the underlying writer.
-func (l *limitedWriter) Write(p []byte) (int, error) {
-	kept := p
-	if len(kept) > l.remaining {
-		kept = kept[:max(l.remaining, 0)]
-	}
-	n, err := l.w.Write(kept)
-	l.remaining -= n
+func (s *DuckDBSource) appendPackageVersions(table string, pkgs []PackageVersion) error {
+	ctx := context.Background()
+	stmt, err := s.conn.PrepareContext(ctx, fmt.Sprintf(`INSERT INTO %s VALUES (?, ?)`, table))
 	if err != nil {
-		return n, err
+		return fmt.Errorf("preparing insert: %w", err)
 	}
-	return len(p), nil
-}
-
-func escapeSingleQuotes(s string) string {
-	result := make([]byte, 0, len(s))
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\'' {
-			result = append(result, '\'', '\'')
-		} else {
-			result = append(result, s[i])
+	defer stmt.Close()
+	for _, pv := range pkgs {
+		if _, err := stmt.ExecContext(ctx, pv.Name, pv.Version); err != nil {
+			return fmt.Errorf("inserting row: %w", err)
 		}
 	}
-	return string(result)
+	return nil
 }

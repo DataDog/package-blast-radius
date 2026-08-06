@@ -1,33 +1,24 @@
 package blast
 
 import (
-	"bytes"
-	"errors"
+	"database/sql"
+	"path/filepath"
 	"reflect"
-	"strings"
+	"sort"
 	"testing"
+	"time"
+
+	_ "github.com/duckdb/duckdb-go/v2"
 )
 
-// Package names are interpolated into SQL, so quote escaping is the only thing
-// standing between a package like "foo'; DROP TABLE edges;--" and the query.
-func TestEscapeSingleQuotes(t *testing.T) {
-	tests := map[string]string{
-		"axios":                  "axios",
-		"@scope/pkg":             "@scope/pkg",
-		"o'brien":                "o''brien",
-		"''":                     "''''",
-		"'; DROP TABLE edges;--": "''; DROP TABLE edges;--",
-		"":                       "",
-	}
-	for in, want := range tests {
-		if got := escapeSingleQuotes(in); got != want {
-			t.Errorf("escapeSingleQuotes(%q) = %q, want %q", in, got, want)
-		}
+func TestNewDuckDBSourceRejectsMissingDatabase(t *testing.T) {
+	if _, err := NewDuckDBSource(t.TempDir() + "/missing.duckdb"); err == nil {
+		t.Error("got nil error for a missing database file")
 	}
 }
 
 func TestQueryDependentsOfNamesIsEmptyForNoNames(t *testing.T) {
-	s := &DuckDBSource{dbPath: "/nonexistent.duckdb"}
+	s := &DuckDBSource{}
 
 	err := s.QueryDependentsOfNames(nil, func(RawDependent) error {
 		t.Error("got a row for an empty name set")
@@ -38,88 +29,149 @@ func TestQueryDependentsOfNamesIsEmptyForNoNames(t *testing.T) {
 	}
 }
 
-func TestDecodeRows(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  []RawDependent
-	}{
-		{"no output at all", "", nil},
-		{"empty array", "[]", nil},
-		{
-			"two rows",
-			`[{"Name":"a","Version":"1.0.0","DepName":"axios","Requirement":"^1.0.0"},
-			  {"Name":"b","Version":"2.0.0","DepName":"axios","Requirement":"~1.2.0"}]`,
-			[]RawDependent{
-				{DependentName: "a", DependentVersion: "1.0.0", TargetName: "axios", Requirement: "^1.0.0"},
-				{DependentName: "b", DependentVersion: "2.0.0", TargetName: "axios", Requirement: "~1.2.0"},
-			},
-		},
+// newFixtureDB builds a small on-disk database with the same schema
+// buildDatabase creates, then reopens it the way analyze does: read-only,
+// through NewDuckDBSource.
+func newFixtureDB(t *testing.T) *DuckDBSource {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "fixture.duckdb")
+	setup, err := sql.Open("duckdb", dbPath)
+	if err != nil {
+		t.Fatalf("opening fixture db: %v", err)
+	}
+	stmts := []string{
+		`CREATE TABLE edges(Name VARCHAR, Version VARCHAR, DepName VARCHAR, Requirement VARCHAR)`,
+		`INSERT INTO edges VALUES
+			('a', '1.0.0', 'axios', '^1.0.0'),
+			('b', '2.0.0', 'axios', '~1.2.0'),
+			('c', '1.0.0', 'lodash', '^4.0.0')`,
+		`CREATE INDEX idx_depname ON edges(DepName)`,
+		`CREATE TABLE versions(Name VARCHAR, Version VARCHAR, PublishedAt TIMESTAMP)`,
+		`INSERT INTO versions VALUES ('a', '1.0.0', '2024-01-02 03:04:05')`,
+		`CREATE INDEX idx_version_name ON versions(Name, Version)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := setup.Exec(stmt); err != nil {
+			t.Fatalf("setting up fixture db: %v", err)
+		}
+	}
+	if err := setup.Close(); err != nil {
+		t.Fatalf("closing fixture db: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var got []RawDependent
-			err := decodeRows(strings.NewReader(tt.input), func(d RawDependent) error {
-				got = append(got, d)
-				return nil
-			})
-			if err != nil {
-				t.Fatalf("decodeRows: %v", err)
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("got  %+v\nwant %+v", got, tt.want)
-			}
-		})
+	source, err := NewDuckDBSource(dbPath)
+	if err != nil {
+		t.Fatalf("NewDuckDBSource: %v", err)
 	}
+	t.Cleanup(func() { source.Close() })
+	return source
 }
 
-func TestDecodeRowsStopsOnYieldError(t *testing.T) {
-	rows := `[{"Name":"a"},{"Name":"b"},{"Name":"c"}]`
-	stop := errors.New("enough")
+func TestQueryDirectDependents(t *testing.T) {
+	source := newFixtureDB(t)
 
-	seen := 0
-	err := decodeRows(strings.NewReader(rows), func(RawDependent) error {
-		seen++
-		return stop
+	var got []RawDependent
+	err := source.QueryDirectDependents("axios", func(d RawDependent) error {
+		got = append(got, d)
+		return nil
 	})
-	if !errors.Is(err, stop) {
-		t.Errorf("got error %v, want %v", err, stop)
+	if err != nil {
+		t.Fatalf("QueryDirectDependents: %v", err)
 	}
-	if seen != 1 {
-		t.Errorf("yield was called %d times, want it to stop after the first error", seen)
+
+	want := []RawDependent{
+		{DependentName: "a", DependentVersion: "1.0.0", TargetName: "axios", Requirement: "^1.0.0"},
+		{DependentName: "b", DependentVersion: "2.0.0", TargetName: "axios", Requirement: "~1.2.0"},
+	}
+	sortDependents(got)
+	sortDependents(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got  %+v\nwant %+v", got, want)
 	}
 }
 
-func TestDecodeRowsRejectsNonArrayOutput(t *testing.T) {
-	err := decodeRows(strings.NewReader(`{"error":"boom"}`), func(RawDependent) error { return nil })
-	if err == nil {
-		t.Error("got nil error for output that is not a JSON array")
+func TestQueryDependentsOfNames(t *testing.T) {
+	source := newFixtureDB(t)
+
+	var got []RawDependent
+	err := source.QueryDependentsOfNames([]string{"axios", "lodash"}, func(d RawDependent) error {
+		got = append(got, d)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("QueryDependentsOfNames: %v", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("got %d rows, want 3: %+v", len(got), got)
+	}
+
+	// A second call must not fail because of the temp table created by the first.
+	got = nil
+	err = source.QueryDependentsOfNames([]string{"axios"}, func(d RawDependent) error {
+		got = append(got, d)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("QueryDependentsOfNames (second call): %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("got %d rows, want 2: %+v", len(got), got)
 	}
 }
 
-// A failing duckdb run can write a lot to stderr, and all of it would otherwise
-// end up in the error message.
-func TestLimitedWriterTruncatesButAcceptsEverything(t *testing.T) {
-	var buf bytes.Buffer
-	w := &limitedWriter{w: &buf, remaining: 5}
+func TestQueryPublishedAt(t *testing.T) {
+	source := newFixtureDB(t)
 
-	for range 3 {
-		n, err := w.Write([]byte("abcd"))
-		if err != nil {
-			t.Fatalf("Write: %v", err)
-		}
-		if n != 4 {
-			t.Errorf("Write reported %d bytes, want 4 so the producer never stalls", n)
-		}
+	result, err := source.QueryPublishedAt([]PackageVersion{
+		{Name: "a", Version: "1.0.0"},
+		{Name: "missing", Version: "9.9.9"},
+	})
+	if err != nil {
+		t.Fatalf("QueryPublishedAt: %v", err)
 	}
-	if buf.String() != "abcda" {
-		t.Errorf("kept %q, want the first 5 bytes", buf.String())
+
+	got, ok := result["a@1.0.0"]
+	if !ok {
+		t.Fatalf("missing entry for a@1.0.0 in %+v", result)
+	}
+	want := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if _, ok := result["missing@9.9.9"]; ok {
+		t.Errorf("got an entry for a package that isn't in the versions table")
 	}
 }
 
-func TestNewDuckDBSourceRejectsMissingDatabase(t *testing.T) {
-	if _, err := NewDuckDBSource(t.TempDir() + "/missing.duckdb"); err == nil {
-		t.Error("got nil error for a missing database file")
+func TestQueryPublishedAtMissingVersionsTable(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "no-versions.duckdb")
+	setup, err := sql.Open("duckdb", dbPath)
+	if err != nil {
+		t.Fatalf("opening fixture db: %v", err)
 	}
+	if _, err := setup.Exec(`CREATE TABLE edges(Name VARCHAR, Version VARCHAR, DepName VARCHAR, Requirement VARCHAR)`); err != nil {
+		t.Fatalf("setting up fixture db: %v", err)
+	}
+	if err := setup.Close(); err != nil {
+		t.Fatalf("closing fixture db: %v", err)
+	}
+
+	source, err := NewDuckDBSource(dbPath)
+	if err != nil {
+		t.Fatalf("NewDuckDBSource: %v", err)
+	}
+	defer source.Close()
+
+	result, err := source.QueryPublishedAt([]PackageVersion{{Name: "a", Version: "1.0.0"}})
+	if err != nil {
+		t.Errorf("got error %v, want nil for a missing versions table", err)
+	}
+	if result != nil {
+		t.Errorf("got %+v, want nil", result)
+	}
+}
+
+func sortDependents(deps []RawDependent) {
+	sort.Slice(deps, func(i, j int) bool { return deps[i].DependentName < deps[j].DependentName })
 }

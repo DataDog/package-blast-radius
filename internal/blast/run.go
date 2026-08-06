@@ -191,6 +191,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	defer source.Close()
 
 	result, err := computeBlastRadius(system, expanded, maxDepth, source, progress, start)
 	if err != nil {

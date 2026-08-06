@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -42,9 +41,8 @@ type Options struct {
 	Stdin    io.Reader
 	Progress io.Writer
 
-	// HTTPClient and Runner are injected by tests; nil means the real thing.
+	// HTTPClient is injected by tests; nil means the real thing.
 	HTTPClient *http.Client
-	Runner     Runner
 	// bigQueryURL and storageURL let tests point at an httptest.Server.
 	bigQueryURL string
 	storageURL  string
@@ -66,9 +64,6 @@ func (o *Options) applyDefaults() {
 	}
 	if o.Progress == nil {
 		o.Progress = os.Stderr
-	}
-	if o.Runner == nil {
-		o.Runner = execRunner{}
 	}
 	if o.now == nil {
 		o.now = time.Now
@@ -184,11 +179,6 @@ func (o *Options) countSteps() int {
 func preflight(opts *Options) error {
 	var problems []string
 
-	if !opts.SkipBuild {
-		if _, err := exec.LookPath("duckdb"); err != nil {
-			problems = append(problems, "duckdb CLI not found in PATH (install with: brew install duckdb)")
-		}
-	}
 	if !opts.BuildOnly && opts.ProjectID == "" {
 		problems = append(problems, "no GCP project given (pass --project)")
 	}
@@ -399,11 +389,11 @@ func buildAndReport(ctx context.Context, opts *Options, r *reporter) error {
 	dbPath := opts.dbPath()
 
 	r.step("Build")
-	if err := buildDatabase(ctx, opts.Runner, parquetDir, dbPath, opts.System.ParquetPrefix(), opts.System.VersionsParquetPrefix(), r); err != nil {
+	if err := buildDatabase(ctx, parquetDir, dbPath, opts.System.ParquetPrefix(), opts.System.VersionsParquetPrefix(), r); err != nil {
 		return err
 	}
 
-	rows, err := countRows(ctx, opts.Runner, dbPath)
+	rows, err := countRows(ctx, dbPath)
 	if err != nil {
 		return fmt.Errorf("database built but its row count could not be read: %w", err)
 	}
