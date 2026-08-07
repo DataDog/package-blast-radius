@@ -230,6 +230,18 @@ func expandTargets(system Ecosystem, targets []TargetSpec) []PackageVersion {
 	return expanded
 }
 
+// matchKey identifies a declared dependency on a frontier package: every edge
+// carrying the same package name and version range resolves to the same frontier
+// entry within a depth. A comparable struct means lookups allocate nothing.
+type matchKey struct {
+	name        string
+	requirement string
+}
+
+// noMatchingParent marks a matchKey that no frontier version satisfies, so
+// negative results are cached as cheaply as positive ones.
+const noMatchingParent = -1
+
 func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth int, source dependentSource, progress io.Writer, start time.Time) (*BlastResult, error) {
 	if progress == nil {
 		progress = io.Discard
@@ -268,6 +280,15 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 			frontierByName[f.pkg.Name] = append(frontierByName[f.pkg.Name], f)
 		}
 
+		// Which frontier entry a (package, requirement) pair resolves to is fixed
+		// for the whole depth, and the same pair recurs across a great many edges:
+		// a popular package is depended on at the same range by thousands of
+		// dependents, and each recurrence would otherwise re-run semver matching
+		// against every frontier version of that package. Scoped to this depth
+		// because the indices point into frontierByName's slices, which are
+		// rebuilt above on every iteration.
+		resolvedParent := make(map[matchKey]int)
+
 		var nextFrontier []frontierEntry
 		edges := 0
 
@@ -289,16 +310,22 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 			edges++
 
 			parents := frontierByName[dep.TargetName]
-			var matchedParent *frontierEntry
-			for i := range parents {
-				if MatchesVersion(system, dep.Requirement, parents[i].pkg.Version) {
-					matchedParent = &parents[i]
-					break
+			resolveKey := matchKey{name: dep.TargetName, requirement: dep.Requirement}
+			matched, cached := resolvedParent[resolveKey]
+			if !cached {
+				matched = noMatchingParent
+				for i := range parents {
+					if MatchesVersion(system, dep.Requirement, parents[i].pkg.Version) {
+						matched = i
+						break
+					}
 				}
+				resolvedParent[resolveKey] = matched
 			}
-			if matchedParent == nil {
+			if matched == noMatchingParent {
 				return nil
 			}
+			matchedParent := &parents[matched]
 
 			if rootName, rootVersion, ok := parseBundledName(dep.DependentName); ok {
 				root := PackageVersion{System: system, Name: rootName, Version: rootVersion}

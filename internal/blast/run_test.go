@@ -201,6 +201,44 @@ func TestComputeBlastRadiusTraversesMatchingDependents(t *testing.T) {
 	}
 }
 
+// When several compromised versions of the same package satisfy one declared
+// requirement, the dependent is attributed to the first one in target order.
+// Nothing else pins this, and it is the invariant any caching of the
+// requirement-to-parent resolution has to preserve.
+func TestComputeBlastRadiusAttributesTiesToTheFirstMatchingTarget(t *testing.T) {
+	// Both versions satisfy ">=1.0.0". The frontier is seeded straight from this
+	// slice, so 1.0.0 is unambiguously the earlier candidate.
+	targets := []PackageVersion{
+		{System: NPM, Name: "vulnerable", Version: "1.0.0"},
+		{System: NPM, Name: "vulnerable", Version: "1.5.0"},
+	}
+	source := &fakeDependentSource{edges: map[string][]RawDependent{
+		"vulnerable": {
+			{DependentName: "consumer", DependentVersion: "2.0.0", TargetName: "vulnerable", Requirement: ">=1.0.0"},
+		},
+	}}
+
+	result, err := computeBlastRadius(NPM, targets, 1, source, io.Discard, time.Now())
+	if err != nil {
+		t.Fatalf("computeBlastRadius: %v", err)
+	}
+
+	if len(result.Affected) != 1 {
+		t.Fatalf("Affected = %+v, want exactly consumer@2.0.0", result.Affected)
+	}
+	got := result.Affected[0]
+	if got.Target != targets[0] {
+		t.Errorf("Target = %s, want %s (the first matching target)", got.Target, targets[0])
+	}
+	if got.Depth != 1 {
+		t.Errorf("Depth = %d, want 1", got.Depth)
+	}
+	wantPath := []PathStep{{Package: "consumer", Version: "2.0.0", Requirement: ">=1.0.0"}}
+	if !reflect.DeepEqual(got.Path, wantPath) {
+		t.Errorf("Path = %+v, want %+v", got.Path, wantPath)
+	}
+}
+
 func TestComputeBlastRadiusExcludesABundleThatPredatesTheCompromise(t *testing.T) {
 	target := PackageVersion{System: NPM, Name: "vulnerable", Version: "1.2.3"}
 	source := &fakeDependentSource{
