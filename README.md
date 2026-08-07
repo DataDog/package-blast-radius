@@ -62,7 +62,6 @@ This works even for **yanked or removed versions**, because `blast-radius` check
 ### Prerequisites
 
 - Go 1.25+
-- The [DuckDB CLI](https://duckdb.org/docs/installation/), installed with `brew install duckdb` on macOS
 - A Google Cloud account, authenticated using `gcloud auth login --update-adc`
 
 ### Overview of the `blast-radius` CLI
