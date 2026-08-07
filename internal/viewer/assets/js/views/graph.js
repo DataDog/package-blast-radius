@@ -2,6 +2,7 @@ import * as api from '../api.js';
 import * as icons from '../icons.js';
 import { compact, count, plural } from '../format.js';
 import { debounce, el, errorState, replace, svg } from '../dom.js';
+import { createCopyButton, token } from '../charts/copy-image.js';
 
 /*
  * One reading grammar for both modes:
@@ -480,6 +481,16 @@ export function createGraphView({ router, detail }) {
   const zoomButton = (label, title, apply) =>
     el('button', { class: 'button', type: 'button', title, on: { click: apply } }, label);
 
+  // Copies the whole diagram, not the part the camera happens to be over: the
+  // scene's own bounds frame the image, so panning and zooming to read one
+  // corner does not crop everything else out of the copy.
+  const copyButton = createCopyButton({
+    getSource: () => canvas,
+    getContent: () => scene,
+    background: () => token('--surface-canvas'),
+    title: 'Copy the whole diagram to the clipboard as an image',
+  });
+
   const toolbar = el(
     'div',
     { class: 'graph__toolbar' },
@@ -493,6 +504,7 @@ export function createGraphView({ router, detail }) {
       zoomButton('−', 'Zoom out', () => zoomBy(1 / 1.25)),
       zoomButton('+', 'Zoom in', () => zoomBy(1.25)),
       zoomButton('Reset', 'Reset the view', reset),
+      copyButton,
     ),
   );
 
@@ -896,7 +908,7 @@ export function createGraphView({ router, detail }) {
   function focusNodeMeta(node) {
     if (node.kind === 'target') return 'compromised';
     if (node.kind === 'source') {
-      return `${plural(focusPkg.routes_total, 'route')} · ${plural(focusPkg.version_count, 'affected version')}`;
+      return `${plural(focusPkg.routes_total, 'route')} · ${plural(focusPkg.version_count, 'package version')}`;
     }
     if (node.kind === 'upstream') return nodeMeta(node.dep, false);
     return plural(node.routes.size, 'route') + ' through it';
@@ -1183,7 +1195,7 @@ export function createGraphView({ router, detail }) {
         ? el(
             'span',
             { class: 'graph__note' },
-            `${routeLabel(route, targets.length > 1)}: ${plural(route.version_count, 'affected version')}.`,
+            `${routeLabel(route, targets.length > 1)}: ${plural(route.version_count, 'package version')}.`,
           )
         : null,
       added

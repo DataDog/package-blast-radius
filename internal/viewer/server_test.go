@@ -87,6 +87,10 @@ func TestSelectPackages(t *testing.T) {
 		{"filter by minimum downloads", "minDownloads=1000", []string{"tremendous", "@scope/pkg"}},
 		{"filter by target reference", "target=evil@9.9.9", []string{"@scope/pkg"}},
 		{"filter by target name", "target=evil", []string{"@scope/pkg"}},
+		// The scope filter is the affected package's own scope, so it must not
+		// catch the unscoped packages that merely route through @scope/pkg.
+		{"filter by the affected package's scope", "scope=@scope", []string{"@scope/pkg"}},
+		{"filter by a scope nothing publishes under", "scope=@nobody", nil},
 		{"search matches package name", "search=deep", []string{"deep-dep"}},
 		{"search is case insensitive", "search=TREMENDOUS", []string{"tremendous", "deep-dep"}},
 		{"search matches an intermediate hop", "search=scope", []string{"@scope/pkg", "deep-dep"}},
@@ -110,6 +114,108 @@ func TestSelectPackages(t *testing.T) {
 				t.Errorf("got %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// Searching a package name has to surface that package, not the thousands of
+// popular packages that merely route through it.
+func TestSearchRanksNameMatchesAboveRouteMatches(t *testing.T) {
+	report := &blast.BlastResult{
+		Targets: []blast.PackageVersion{axiosTarget},
+		Affected: []blast.AffectedPackage{
+			entry("popular", "1.0.0", 900000, axiosTarget,
+				step("popular", "1.0.0", "^1.0.0"), step("web3-bzz", "1.0.0", "^1.6.1")),
+			entry("3f-web3-bzz", "2.0.0", 50, axiosTarget,
+				step("3f-web3-bzz", "2.0.0", "^1.6.1")),
+			entry("web3-bzz", "1.0.0", 400, axiosTarget,
+				step("web3-bzz", "1.0.0", "^1.6.1")),
+		},
+		UniquePackages: 3,
+		MaxDepth:       2,
+	}
+
+	s, err := loadStore(writeReport(t, report))
+	if err != nil {
+		t.Fatalf("loadStore: %v", err)
+	}
+
+	names := func(query string) []string {
+		q, _ := url.ParseQuery(query)
+		var got []string
+		for _, i := range s.selectPackages(parsePackageQuery(q)) {
+			got = append(got, s.strings.str(s.packages[i].NameID))
+		}
+		return got
+	}
+
+	// Exact name, then substring, then the route-only match.
+	want := []string{"web3-bzz", "3f-web3-bzz", "popular"}
+	if got := names("search=web3-bzz"); !slices.Equal(got, want) {
+		t.Errorf("implicit sort gave %v, want %v", got, want)
+	}
+
+	// Picking a column is a request for that order, which relevance must
+	// not override.
+	wantByDownloads := []string{"popular", "web3-bzz", "3f-web3-bzz"}
+	if got := names("search=web3-bzz&sort=weekly_downloads&dir=desc"); !slices.Equal(got, wantByDownloads) {
+		t.Errorf("explicit sort gave %v, want %v", got, wantByDownloads)
+	}
+}
+
+// A row that matched on a route has to lead with that route. deep-dep reaches
+// axios through @scope/pkg on one route and through tremendous on another, and
+// only the first is shown in the list.
+func TestRouteMatchingTheSearchLeadsThePreview(t *testing.T) {
+	s := loadFixture(t)
+
+	firstRoute := func(search string) []string {
+		resp := s.packageResponse(s.pkg("deep-dep"), search)
+		if len(resp.Routes) == 0 {
+			t.Fatalf("search=%q returned no routes", search)
+		}
+		return resp.Routes[0].Hops
+	}
+
+	if got := firstRoute("scope"); !slices.Contains(got, "@scope/pkg") {
+		t.Errorf(`search=scope led with hops %v, want the @scope/pkg route`, got)
+	}
+	if got := firstRoute("tremendous"); !slices.Contains(got, "tremendous") {
+		t.Errorf(`search=tremendous led with hops %v, want the tremendous route`, got)
+	}
+
+	// A name match needs no explaining, so the preview keeps its own order.
+	unsearched := s.packageResponse(s.pkg("deep-dep"), "").Routes[0].Hops
+	if got := firstRoute("deep"); !slices.Equal(got, unsearched) {
+		t.Errorf("name match reordered routes: got %v, want %v", got, unsearched)
+	}
+}
+
+// With no download data the viewer drops the download column and sorts by
+// distance, so the implicit server-side sort has to agree with it.
+func TestUnenrichedReportSortsByDistanceByDefault(t *testing.T) {
+	report := &blast.BlastResult{
+		Targets: []blast.PackageVersion{axiosTarget},
+		Affected: []blast.AffectedPackage{
+			entry("a-far", "1.0.0", notEnriched, axiosTarget,
+				step("a-far", "1.0.0", "^1.0.0"), step("mid", "1.0.0", "^1.6.1")),
+			entry("z-near", "1.0.0", notEnriched, axiosTarget,
+				step("z-near", "1.0.0", "^1.6.1")),
+		},
+		UniquePackages: 2,
+		MaxDepth:       2,
+	}
+
+	s, err := loadStore(writeReport(t, report))
+	if err != nil {
+		t.Fatalf("loadStore: %v", err)
+	}
+
+	var got []string
+	for _, i := range s.selectPackages(parsePackageQuery(url.Values{})) {
+		got = append(got, s.strings.str(s.packages[i].NameID))
+	}
+	if want := []string{"z-near", "a-far"}; !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
@@ -455,8 +561,9 @@ func TestAPIDownloadCSV(t *testing.T) {
 		t.Fatalf("got %d rows, want header + 6", len(rows))
 	}
 	wantHeader := []string{
-		"package", "latest_recorded_version", "version_count", "versions",
-		"depth", "weekly_downloads", "target", "example_path",
+		"affected_package", "affected_package_versions", "version_count",
+		"depth", "weekly_downloads",
+		"compromised_package", "compromised_package_version", "example_path",
 	}
 	if !slices.Equal(rows[0], wantHeader) {
 		t.Errorf("header = %v, want %v", rows[0], wantHeader)
@@ -464,22 +571,22 @@ func TestAPIDownloadCSV(t *testing.T) {
 
 	byKey := map[string][]string{}
 	for _, row := range rows[1:] {
-		byKey[row[0]+"|"+row[6]] = row
+		byKey[row[0]+"|"+row[5]+"@"+row[6]] = row
 	}
 
 	tremendous := byKey["tremendous|axios@1.14.1"]
-	if tremendous[2] != "2" || tremendous[3] != "3.11.0 3.9.0" {
-		t.Errorf("tremendous versions = %q / %q", tremendous[2], tremendous[3])
+	if tremendous[1] != "3.11.0,3.9.0" || tremendous[2] != "2" {
+		t.Errorf("tremendous versions = %q / %q", tremendous[1], tremendous[2])
 	}
-	if tremendous[5] != "24400" {
-		t.Errorf("tremendous downloads = %q", tremendous[5])
+	if tremendous[4] != "24400" {
+		t.Errorf("tremendous downloads = %q", tremendous[4])
 	}
 	if !strings.Contains(tremendous[7], "-->") {
 		t.Errorf("example_path = %q, want a rendered dependency chain", tremendous[7])
 	}
 
 	// Unenriched is an empty cell, never a zero.
-	if got := byKey["unenriched|axios@1.14.1"][5]; got != "" {
+	if got := byKey["unenriched|axios@1.14.1"][4]; got != "" {
 		t.Errorf("unenriched downloads = %q, want an empty cell", got)
 	}
 }

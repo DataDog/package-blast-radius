@@ -1,7 +1,8 @@
 import * as api from './api.js';
 import * as icons from './icons.js';
 import { el, errorState, loadingState, replace } from './dom.js';
-import { createRouter } from './router.js';
+import { createPalette } from './palette.js';
+import { buildHash, createRouter } from './router.js';
 import { currentTheme, toggleTheme, watchSystemTheme } from './theme.js';
 import { createDetailPanel } from './views/detail.js';
 import { createExploreView } from './views/explore.js';
@@ -14,7 +15,11 @@ const TABS = [
   { name: 'graph', label: 'Graph' },
 ];
 
-function buildTopbar({ summary, router }) {
+// The shortcut is ⌘K on Apple keyboards and Ctrl+K everywhere else, so the
+// label has to match the keyboard in front of the reader.
+const APPLE = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+function buildTopbar({ summary, router, palette }) {
   const tabs = TABS.map((tab) =>
     el(
       'button',
@@ -52,9 +57,26 @@ function buildTopbar({ summary, router }) {
     el(
       'div',
       { class: 'topbar__inner' },
-      el('span', { class: 'brand' }, el('span', { class: 'brand__mark' }), 'Blast radius'),
+      el(
+        'a',
+        { class: 'brand', href: buildHash(TABS[0].name, {}), title: 'Back to overview' },
+        el('span', { class: 'brand__mark' }),
+        'Blast radius',
+      ),
       el('nav', { class: 'tabs', 'aria-label': 'Views' }, ...tabs),
       el('span', { class: 'spacer' }),
+      el(
+        'button',
+        {
+          class: 'omnibox',
+          type: 'button',
+          title: 'Search packages',
+          on: { click: () => palette.open() },
+        },
+        icons.search(),
+        el('span', { class: 'omnibox__label' }, 'Search packages'),
+        el('kbd', { class: 'kbd' }, APPLE ? '⌘K' : 'Ctrl K'),
+      ),
       themeButton,
     ),
   );
@@ -70,8 +92,13 @@ function buildTopbar({ summary, router }) {
   };
 }
 
-function bindShortcuts(getActiveView) {
+function bindShortcuts(getActiveView, palette) {
   document.addEventListener('keydown', (event) => {
+    if ((event.key === 'k' || event.key === 'K') && (event.metaKey || event.ctrlKey) && !event.altKey) {
+      event.preventDefault();
+      palette.toggle();
+      return;
+    }
     if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target;
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
@@ -121,14 +148,15 @@ async function boot() {
     },
   });
 
-  const topbar = buildTopbar({ summary, router });
+  const palette = createPalette({ summary, router, detail });
+  const topbar = buildTopbar({ summary, router, palette });
 
   views.overview = createOverviewView({ summary, router });
   views.explore = createExploreView({ summary, router, detail });
   views.graph = createGraphView({ router, detail });
 
   replace(root, topbar.element, viewport);
-  bindShortcuts(() => active);
+  bindShortcuts(() => active, palette);
   router.start();
 }
 

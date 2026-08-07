@@ -116,9 +116,15 @@ select {
   font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
+  color: inherit;
+  text-decoration: none;
 }
 
-/* Purple, not blue: this is identity, and nothing about it is clickable. */
+.brand:hover {
+  color: var(--brand-text);
+}
+
+/* Purple, not blue: this is identity, not a link affordance. */
 .brand__mark {
   width: 9px;
   height: 9px;
@@ -318,8 +324,38 @@ select {
   word-break: normal;
 }
 
+/* The compromised versions themselves, listed rather than counted: which
+   version you have is the first thing anyone checks. */
+.incident__versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.incident__version {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--surface-canvas);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.incident__version--more {
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.incident__version--more:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
 .incident__sub {
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
   color: var(--text-secondary);
 }
 
@@ -350,11 +386,24 @@ select {
   color: var(--text-secondary);
 }
 
+/* Side-by-side panels share a height even when one holds more rows: two cards of
+   different lengths read as one being cut short. */
 .split {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: var(--space-5);
-  align-items: start;
+  align-items: stretch;
+}
+
+/* Bars stay with their heading and any closing note sits at the foot of the
+   card, so the two panels line up top and bottom rather than only at the top. */
+.panel--fill {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel--fill .panel__note {
+  margin-top: auto;
 }
 
 /* A lone panel stops at a readable width instead of stretching a handful of
@@ -431,6 +480,25 @@ select {
   }
 }
 
+/* Distance has a ramp because the number means something ordered. A scope's
+   rank does not, so those bars stay one colour. */
+.bar-row__fill--flat {
+  background: var(--accent);
+}
+
+/* A long tail scrolls inside the card rather than stretching the page, and its
+   own gutter keeps the scrollbar off the numbers. */
+.bars--scroll {
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+  scrollbar-gutter: stable;
+}
+
+.panel__more {
+  margin-top: var(--space-3);
+}
+
 .bar-row__value {
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
@@ -450,8 +518,17 @@ button.bar-row__value {
   display: contents;
 }
 
+/*
+ * These rows carry no "click to filter" caption, so the hover state is the whole
+ * affordance: the track outlines and the label takes the action colour, the same
+ * pair of cues the ranked lists use.
+ */
 .bars-link:hover .bar-row__track {
   outline: 1px solid var(--border-strong);
+}
+
+.bars-link:hover .bar-row__label {
+  color: var(--brand-text);
 }
 
 /* ---------------------------------------------------- overview: targets */
@@ -509,6 +586,277 @@ button.bar-row__value {
   border-top: 1px solid var(--border-subtle);
   font-size: var(--text-sm);
   color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------- overview: bridges */
+
+.panel--chart {
+  margin-top: var(--space-5);
+}
+
+.panel__controls {
+  margin-bottom: var(--space-4);
+}
+
+/* A second reading of the same numbers, kept inside the panel that drew them
+   rather than beside it, where two cards would read as two findings. */
+.panel__section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.panel__subhead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+/* Ten rows down one column is a scroll; across the panel it is a glance. */
+.rank--grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  column-gap: var(--space-5);
+}
+
+.rank--grid .rank__row {
+  border-top: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* A two-way choice over one set of numbers, so it reads as one control rather
+   than two buttons that happen to sit together. */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.seg__option {
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.seg__option + .seg__option {
+  border-left: 1px solid var(--border-subtle);
+}
+
+.seg__option:hover {
+  color: var(--text-primary);
+  background: var(--surface-sunken);
+}
+
+.seg__option[aria-pressed='true'] {
+  background: var(--brand-subtle);
+  color: var(--brand-text);
+  font-weight: 600;
+}
+
+/*
+ * The Pareto chart. Two series that must not be mistaken for each other: the
+ * bars take the identity purple, the running total the action blue, and the
+ * legend separates them by shape as well, so the pairing never rests on hue
+ * alone. Every value is printed next to its mark regardless.
+ */
+.pareto {
+  position: relative;
+}
+
+.pareto__scroll {
+  overflow-x: auto;
+}
+
+.pareto__svg {
+  display: block;
+  width: 100%;
+  min-width: 700px;
+  height: auto;
+}
+
+/* The legend lives inside the SVG so that copying the chart copies its key. */
+.pareto__key-bar {
+  fill: var(--accent);
+}
+
+.pareto__key-tail {
+  fill: var(--accent-subtle);
+  stroke: var(--accent);
+}
+
+.pareto__key-line {
+  fill: var(--brand);
+  stroke: var(--brand);
+  stroke-width: 2;
+}
+
+.pareto__key-label {
+  fill: var(--text-secondary);
+  font-size: 11px;
+}
+
+.pareto__grid {
+  stroke: var(--border-subtle);
+}
+
+.pareto__axis-label {
+  fill: var(--text-secondary);
+  font-size: 11px;
+  text-anchor: end;
+}
+
+.pareto__bar {
+  fill: var(--accent);
+}
+
+.pareto__bar:hover {
+  fill-opacity: 0.85;
+}
+
+/*
+ * The tail bar is a different quantity from the others: what everything the
+ * chart does not name adds, rather than a share of its own. It is drawn hollow
+ * so it cannot be read as just another package.
+ */
+.pareto__bar--tail {
+  fill: var(--accent-subtle);
+  stroke: var(--accent);
+  stroke-dasharray: 3 2;
+}
+
+/* The count leads and carries the weight; the share follows in parentheses. */
+.pareto__bar-label {
+  fill: var(--text-secondary);
+  font-size: 10.5px;
+  text-anchor: middle;
+}
+
+.pareto__bar-label .pareto__count {
+  font-weight: 600;
+  fill: var(--text-primary);
+}
+
+/* Inside a filled bar the label sits on the identity colour, not the canvas. */
+.pareto__bar-label--inside,
+.pareto__bar-label--inside .pareto__count {
+  fill: var(--text-inverse);
+}
+
+.pareto__bar-label--inside .pareto__pct {
+  fill-opacity: 0.85;
+}
+
+/* The tail bar is hollow, so its label stays on the canvas colours. */
+.pareto__bar-label--tail,
+.pareto__bar-label--tail .pareto__count {
+  fill: var(--text-primary);
+}
+
+.pareto__bar-label--tail .pareto__pct {
+  fill: var(--text-secondary);
+  fill-opacity: 1;
+}
+
+.pareto__line {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 2;
+}
+
+.pareto__dot {
+  fill: var(--brand);
+  stroke: var(--surface-raised);
+  stroke-width: 1.5;
+}
+
+.pareto__cum-label {
+  fill: var(--brand-text);
+  font-size: 11px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+
+.pareto__xlabel {
+  fill: var(--text-primary);
+  font-size: 10.5px;
+  text-anchor: middle;
+}
+
+.pareto__xlabel--tail {
+  fill: var(--text-secondary);
+}
+
+.pareto__scope {
+  fill: var(--text-secondary);
+}
+
+/* The ranking is about the package; its version is context, not the label. */
+.pareto__version {
+  fill: var(--text-secondary);
+  font-size: 9.5px;
+}
+
+.pareto__tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  max-width: 280px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-overlay);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.pareto__tooltip.is-visible {
+  opacity: 1;
+}
+
+/*
+ * Copy-to-clipboard. The clipboard is somewhere the page cannot look, so the
+ * button reports what happened on itself rather than assuming it worked.
+ */
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.copy svg {
+  width: 14px;
+  height: 14px;
+}
+
+.copy[data-state='done'] {
+  border-color: var(--success);
+  color: var(--success-text);
+}
+
+.copy[data-state='failed'] {
+  border-color: var(--danger);
+  color: var(--danger-text);
+}
+
+.copy__label {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A package name in prose is a name, not a word: it keeps the mono face. */
+.panel__note code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  color: var(--text-primary);
 }
 
 /* ----------------------------------------------------------------- footer */
@@ -791,6 +1139,109 @@ button.bar-row__value {
 .button--primary:hover:not(:disabled) {
   border-color: var(--brand-hover);
   background: var(--brand-hover);
+}
+
+/* An active filter that no control on the page owns, so the chip is the only
+   thing saying the list is narrowed, and the only way back out of it. */
+.chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px 2px 2px var(--space-3);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-pill);
+  background: var(--brand-subtle);
+  font-size: var(--text-sm);
+}
+
+.chip__label {
+  color: var(--text-secondary);
+}
+
+.chip__name {
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--brand-text);
+}
+
+.chip__clear {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.chip__clear:hover {
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+}
+
+.chip__clear svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* A trigger with a list under it. Anchored to the trigger and right-aligned,
+   because it opens at the end of the toolbar and a left-aligned list would hang
+   off the page. */
+.menu {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Outcome colours have to outrank the primary button's own hover, which is
+   otherwise still under the pointer when the copy lands. */
+.button--primary.menu__trigger[data-state='done'] {
+  border-color: var(--success-text);
+  background: var(--success-text);
+}
+
+.button--primary.menu__trigger[data-state='failed'] {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.menu__list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-overlay);
+}
+
+.menu__item {
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menu__item:hover,
+.menu__item:focus-visible {
+  background: var(--surface-sunken);
+  outline: none;
 }
 
 .toolbar {
@@ -1262,20 +1713,6 @@ table.data tbody tr[aria-selected='true'] td {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--text-primary);
-}
-
-/* A DRUIDS StatusPill: filled, not tinted. The compromised package is the one
-   fact in the report that should be readable from across the room. */
-.tag {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--danger);
-  color: var(--text-inverse);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: var(--eyebrow-tracking);
-  text-transform: uppercase;
 }
 
 .link {
@@ -1819,4 +2256,263 @@ table.data tbody tr[aria-selected='true'] td {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* --------------------------------------------------------------- palette */
+
+/*
+ * ⌘K search. Sits above the drawer, since it can open one and must not be
+ * buried by the thing it opened. The whole box is one column: query on top,
+ * grouped rows under it, key hints along the bottom.
+ */
+
+.omnibox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.omnibox:hover {
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+.omnibox svg {
+  width: 14px;
+  height: 14px;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 1px var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.scrim--palette {
+  z-index: 60;
+  background: rgba(10, 11, 16, 0.4);
+}
+
+.palette {
+  position: fixed;
+  z-index: 70;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  width: min(680px, calc(100vw - 2 * var(--space-4)));
+  max-height: 74vh;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+  animation: palette-in 0.12s ease-out;
+}
+
+@keyframes palette-in {
+  from {
+    transform: translate(-50%, -6px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .palette {
+    animation: none;
+  }
+}
+
+.palette__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.palette__head-icon {
+  display: flex;
+  color: var(--text-secondary);
+}
+
+.palette__head-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.palette__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--text-lg);
+}
+
+.palette__input:focus {
+  outline: none;
+}
+
+.palette__input::placeholder {
+  color: var(--text-secondary);
+}
+
+.palette__list {
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+}
+
+.palette__group {
+  padding: var(--space-2) var(--space-4) var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.palette__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+}
+
+.palette__row--muted {
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.palette__row[aria-selected='true'] {
+  background: var(--brand);
+  color: var(--text-inverse);
+}
+
+.palette__icon {
+  display: flex;
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.palette__row[aria-selected='true'] .palette__icon {
+  color: currentColor;
+}
+
+.palette__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Title, the quoted term and the description share one line and give way from
+   the right, so the package name is the last thing to be cut. */
+.palette__label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.palette__title {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-md);
+}
+
+.palette__quoted {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.palette__meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.palette__hint {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.palette__row[aria-selected='true'] .palette__meta,
+.palette__row[aria-selected='true'] .palette__hint {
+  color: var(--text-inverse);
+  opacity: 0.8;
+}
+
+.palette__empty {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.palette__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.palette__keyhint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.palette__footer-end {
+  margin-left: auto;
+}
+
+@media (max-width: 720px) {
+  .omnibox__label,
+  .omnibox .kbd {
+    display: none;
+  }
+
+  .palette {
+    top: var(--space-4);
+  }
 }

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/DataDog/package-blast-radius/internal/blast"
@@ -92,6 +93,14 @@ type store struct {
 	versionDepthCounts map[int]int // affected versions by their own route depth
 	combinedDownloads  int64       // notEnriched when no package is enriched
 	skippedPathless    int
+
+	// The Pareto ranking and the scope breakdown are derived on first request
+	// rather than at build time; see paretoStats. Everything else on the store
+	// is immutable once built.
+	paretoOnce sync.Once
+	pareto     paretoResponse
+	scopesOnce sync.Once
+	scopes     scopesResponse
 }
 
 func (s *store) enriched() bool { return s.combinedDownloads != notEnriched }

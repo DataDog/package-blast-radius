@@ -17,6 +17,14 @@ export function downloads(value) {
   return value === null || value === undefined ? '—' : count(value);
 }
 
+/**
+ * Two decimals at most, and no trailing zeros: a chart axis reads "80%" while a
+ * share that genuinely lands between ticks keeps its precision.
+ */
+export function percent(value) {
+  return `${Math.round((value ?? 0) * 100) / 100}%`;
+}
+
 export function plural(n, singular, plural = singular + 's') {
   return `${count(n)} ${n === 1 ? singular : plural}`;
 }

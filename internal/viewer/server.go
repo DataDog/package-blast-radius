@@ -78,6 +78,8 @@ func registerRoutes(mux *http.ServeMux, s *store, sourcePath string, assets fs.F
 	mux.HandleFunc("/api/summary", s.handleSummary(sourcePath))
 	mux.HandleFunc("/api/packages", s.handlePackages)
 	mux.HandleFunc("/api/package", s.handlePackage)
+	mux.HandleFunc("/api/pareto", s.handlePareto)
+	mux.HandleFunc("/api/scopes", s.handleScopes)
 	mux.HandleFunc("/api/download", s.handleDownload)
 	mux.HandleFunc("/api/graph/roots", s.handleGraphRoots)
 	mux.HandleFunc("/api/graph/dependents", s.handleGraphDependents)

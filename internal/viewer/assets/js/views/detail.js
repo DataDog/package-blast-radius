@@ -235,7 +235,7 @@ export function createDetailPanel({ maxDepth, onTrace }) {
             el(
               'div',
               { class: 'drawer__section-head' },
-              el('h3', { class: 'eyebrow' }, 'Affected versions on this route'),
+              el('h3', { class: 'eyebrow' }, 'Package versions on this route'),
               total > shown
                 ? el('span', { class: 'muted', style: 'font-size: var(--text-sm)' }, `showing ${count(shown)} of ${count(total)}`)
                 : null,
@@ -263,7 +263,7 @@ export function createDetailPanel({ maxDepth, onTrace }) {
       el(
         'p',
         { class: 'caveat' },
-        'Each affected version carries the one route the traversal recorded for it. Other routes to the same package may exist and are not shown.',
+        'Each package version carries the one route the traversal recorded for it. Other routes to the same package may exist and are not shown.',
       ),
     );
 

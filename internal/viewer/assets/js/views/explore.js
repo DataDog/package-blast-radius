@@ -2,6 +2,7 @@ import * as api from '../api.js';
 import * as icons from '../icons.js';
 import { count, depthStop, downloads, plural } from '../format.js';
 import { debounce, el, emptyState, errorState, loadingState, replace } from '../dom.js';
+import { createExportMenu } from '../export-menu.js';
 
 const PAGE_SIZES = [50, 100, 250, 500];
 const DEFAULT_PAGE_SIZE = 100;
@@ -43,6 +44,7 @@ export function createExploreView({ summary, router, detail }) {
       minDepth: clampDepth(Math.min(lo, hi)),
       maxDepth: clampDepth(Math.max(lo, hi)),
       target: params.get('target') || '',
+      scope: params.get('scope') || '',
       sort: params.get('sort') || defaultSort,
       dir: params.get('dir') === 'asc' ? 'asc' : params.get('dir') === 'desc' ? 'desc' : defaultDir,
       offset: Math.max(0, Number(params.get('offset')) || 0),
@@ -56,12 +58,25 @@ export function createExploreView({ summary, router, detail }) {
     if (s.minDepth > 1) params.set('minDepth', String(s.minDepth));
     if (s.maxDepth < maxDepth) params.set('maxDepth', String(s.maxDepth));
     if (s.target) params.set('target', s.target);
+    if (s.scope) params.set('scope', s.scope);
     if (s.sort !== defaultSort) params.set('sort', s.sort);
     if (s.dir !== defaultDir) params.set('dir', s.dir);
     if (s.offset) params.set('offset', String(s.offset));
     if (s.limit !== DEFAULT_PAGE_SIZE) params.set('limit', String(s.limit));
     return params;
   }
+
+  /*
+   * The server ranks search hits by relevance when it is left to pick the
+   * order, which it can only tell from an absent sort parameter. So the
+   * default sort travels as nothing at all, and only a column the user picked
+   * is sent explicitly. Sending the default verbatim would read as a choice
+   * and bury the searched-for package under everything that merely routes
+   * through it.
+   */
+  const sortIsDefault = (s) => s.sort === defaultSort && s.dir === defaultDir;
+  const rankedByRelevance = (s) => s.search !== '' && sortIsDefault(s);
+  const apiQuery = (s) => (sortIsDefault(s) ? { ...s, sort: '', dir: '' } : s);
 
   let state = readState(new URLSearchParams());
   let inFlight = null;
@@ -215,12 +230,37 @@ export function createExploreView({ summary, router, detail }) {
     ),
   );
 
+  // ------------------------------------------------------------------ scope
+
+  // The scope filter is only ever set by the Overview's scope panel, so it has
+  // no input of its own. It appears as a chip that says why the list is short,
+  // and clears itself.
+  const scopeName = el('span', { class: 'chip__name' });
+  const scopeChip = el(
+    'div',
+    { class: 'chip', hidden: true },
+    el('span', { class: 'chip__label' }, 'Scope'),
+    scopeName,
+    el(
+      'button',
+      {
+        class: 'chip__clear',
+        type: 'button',
+        'aria-label': 'Clear the scope filter',
+        title: 'Show every affected package again',
+        on: { click: () => navigate({ scope: '' }) },
+      },
+      icons.close(),
+    ),
+  );
+
   const filters = el(
     'div',
     { class: 'filters' },
     searchbar,
     maxDepth > 1 ? reach : null,
     attributedTargets.length > 1 ? targetFilter : null,
+    scopeChip,
   );
 
   // ------------------------------------------------------------------ table
@@ -262,7 +302,7 @@ export function createExploreView({ summary, router, detail }) {
   );
 
   const resultsInfo = el('span');
-  const downloadLink = el('a', { class: 'button button--primary', href: '#', download: '' }, icons.download(), 'Export CSV');
+  const exportMenu = createExportMenu({ getURL: () => api.downloadURL(apiQuery(state)) });
 
   const pageSizeSelect = el(
     'select',
@@ -274,7 +314,7 @@ export function createExploreView({ summary, router, detail }) {
     ...PAGE_SIZES.map((size) => el('option', { value: String(size) }, size + ' / page')),
   );
 
-  const toolbar = el('div', { class: 'toolbar' }, resultsInfo, el('div', { class: 'toolbar__end' }, pageSizeSelect, downloadLink));
+  const toolbar = el('div', { class: 'toolbar' }, resultsInfo, el('div', { class: 'toolbar__end' }, pageSizeSelect, exportMenu));
 
   const prevButton = el(
     'button',
@@ -413,15 +453,16 @@ export function createExploreView({ summary, router, detail }) {
     }
 
     if (targetInput.value !== state.target) targetInput.value = state.target;
+    scopeChip.hidden = state.scope === '';
+    scopeName.textContent = state.scope;
     pageSizeSelect.value = String(state.limit);
 
+    // No caret while relevance is in charge: no column describes that order.
     for (const { column, button, caret } of headerCells) {
-      const active = state.sort === column.sort;
+      const active = state.sort === column.sort && !rankedByRelevance(state);
       button.setAttribute('aria-sort', active ? (state.dir === 'asc' ? 'ascending' : 'descending') : 'none');
       caret.textContent = active ? (state.dir === 'asc' ? '▲' : '▼') : '';
     }
-
-    downloadLink.href = api.downloadURL(state);
   }
 
   async function load() {
@@ -430,7 +471,7 @@ export function createExploreView({ summary, router, detail }) {
     inFlight = new AbortController();
 
     try {
-      const data = await api.packages(state, inFlight.signal);
+      const data = await api.packages(apiQuery(state), inFlight.signal);
       if (mine !== generation) return;
       renderResults(data);
     } catch (error) {
