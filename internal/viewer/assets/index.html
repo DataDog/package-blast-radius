@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Blast radius</title>
+    <link rel="stylesheet" href="/css/tokens.css" />
+    <link rel="stylesheet" href="/css/app.css" />
+    <script>
+      // Resolves the theme before first paint. Deliberately duplicates
+      // js/theme.js: a module would load too late and the page would flash.
+      (function () {
+        var stored = null;
+        try {
+          stored = localStorage.getItem('blast-radius:theme');
+        } catch (e) {}
+        var dark =
+          stored === 'dark' ||
+          (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="app" id="app"></div>
+    <noscript>This viewer needs JavaScript. Use <code>blast-radius analyze --output csv</code> instead.</noscript>
+    <script type="module" src="/js/main.js"></script>
+  </body>
+</html>
