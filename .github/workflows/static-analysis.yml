@@ -26,7 +26,6 @@ jobs:
             proxy.golang.org:443
             sum.golang.org:443
             storage.googleapis.com:443
-            *.githubapp.com:443
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
