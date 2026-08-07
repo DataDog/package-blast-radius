@@ -5,6 +5,10 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   goreleaser:
     # duckdb-go links a prebuilt, platform-specific static libduckdb via CGO,
@@ -14,13 +18,23 @@ jobs:
     # and linux/arm64 with a real libstdc++ (see .goreleaser.yaml).
     runs-on: macos-14
     permissions:
-      contents: write
-      pull-requests: write
+      id-token: write
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # ratchet:step-security/harden-runner@v2
         with:
           egress-policy: audit
+
+      # The org blocks GITHUB_TOKEN from creating pull requests, so the
+      # write-scoped token used below (for goreleaser's release + Homebrew PR)
+      # comes from dd-octo-sts-action instead. Trust policy:
+      # .github/chainguard/self.release.create-pr.sts.yaml
+      - name: Federate GitHub App token
+        uses: DataDog/dd-octo-sts-action@96a25462dbcb10ebf0bfd6e2ccc917d2ab235b9a # ratchet:DataDog/dd-octo-sts-action@v1.0.4
+        id: octo-sts
+        with:
+          scope: DataDog/package-blast-radius
+          policy: self.release.create-pr
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
@@ -45,11 +59,4 @@ jobs:
           version: "~> v2.17.1"
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Print Homebrew formula PR link
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          branch="homebrew-update-${version}"
-          echo "Homebrew formula pushed to branch '${branch}'. Open a PR:" | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "https://github.com/${{ github.repository }}/compare/main...${branch}?expand=1" | tee -a "$GITHUB_STEP_SUMMARY"
+          GITHUB_TOKEN: ${{ steps.octo-sts.outputs.token }}

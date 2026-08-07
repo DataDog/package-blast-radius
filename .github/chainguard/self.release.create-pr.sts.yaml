@@ -1,0 +1,12 @@
+issuer: https://token.actions.githubusercontent.com
+
+subject_pattern: repo:DataDog/package-blast-radius:ref:refs/tags/.*
+
+claim_pattern:
+  event_name: push
+  ref: refs/tags/.*
+  job_workflow_ref: DataDog/package-blast-radius/.github/workflows/release.yml@refs/tags/.*
+
+permissions:
+  contents: write
+  pull_requests: write
