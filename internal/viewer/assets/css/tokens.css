@@ -1,9 +1,18 @@
 /*
- * Design tokens.
+ * Design tokens, tuned to the DRUIDS visual language.
  *
- * Purple is an accent, not a theme: surfaces and text stay neutral, and the
- * brand carries the path spine, selection, active tab and focus ring only.
- * Red is reserved for one thing, the compromised package.
+ * Three colours with three separate jobs, which is what keeps the report
+ * readable:
+ *
+ *   Blue is action. Every affordance is blue and only affordances are blue:
+ *   primary buttons, the active tab, selection, focus rings, sliders. This is
+ *   the DRUIDS convention and it means "blue" always answers "what can I do".
+ *
+ *   Purple is Datadog identity and data. It carries the brand mark and the
+ *   depth ramp. Because it never appears on a control, a purple pixel is never
+ *   mistaken for something clickable.
+ *
+ *   Red is reserved for one thing, the compromised package.
  *
  * Two typefaces with distinct jobs. Sans is chrome: labels, prose, controls.
  * Mono is every string that came out of a registry: package names, versions,
@@ -11,40 +20,54 @@
  * is a literal you could paste into a manifest.
  *
  * Every value was checked against the surface it sits on: 4.5:1 for text, 3:1
- * for borders, marks and focus rings. The depth ramp varies lightness rather
- * than hue, because a purple hue ramp collapses under deuteranopia while a
- * lightness ramp survives it. Depth is never encoded by colour alone.
+ * for borders, marks and focus rings. Fills that carry white text are a shade
+ * darker than the DRUIDS mark colour for that reason. The depth ramp varies
+ * lightness rather than hue, because a purple hue ramp collapses under
+ * deuteranopia while a lightness ramp survives it. Depth is never encoded by
+ * colour alone.
  */
 
 :root {
   color-scheme: light;
 
   --surface-canvas: #ffffff;
-  --surface-raised: #f8f8fb;
+  --surface-raised: #f9fafb;
   --surface-overlay: #ffffff;
-  --surface-sunken: #f1f1f6;
+  --surface-sunken: #f2f4f5;
 
-  --border-subtle: #e6e6ec;
-  --border-default: #d2d2dc;
-  --border-strong: #b0b0c0;
+  --border-subtle: #e4e7e9;
+  --border-default: #d3d8da;
+  /* Darker than a DRUIDS hairline because this one is load-bearing: it strokes
+     the graph edges, which are marks and owe 3:1 rather than a divider's
+     nothing. Measured against the raised surface the graph stage paints, not
+     the canvas, since that is what the edges actually sit on. */
+  --border-strong: #868d92;
 
-  --text-primary: #17181f;
-  --text-secondary: #63647a;
+  /* The DRUIDS ink: a desaturated blue-black rather than a neutral grey. */
+  --text-primary: #202f38;
+  --text-secondary: #656f75;
   --text-inverse: #ffffff;
 
-  /* --brand fills and carries white text; --brand-text is the same identity
-     at a lightness that reads as text on the canvas. */
-  --brand: #632ca6;
-  --brand-text: #5b2799;
-  --brand-hover: #51228a;
-  --brand-subtle: #f4eefb;
-  --focus-ring: #8000ff;
+  /* --brand fills and carries white text; --brand-text is the same identity at
+     a lightness that reads as text on the canvas. */
+  --brand: #006bc2;
+  --brand-text: #005fae;
+  --brand-hover: #0058a3;
+  --brand-subtle: #e8f2fb;
+  --focus-ring: #006bc2;
+  --focus-halo: rgba(0, 107, 194, 0.25);
 
-  --danger: #c0233f;
-  --danger-text: #a81c36;
-  --danger-subtle: #fdeef1;
-  --warning: #a86400;
-  --success: #1c7f37;
+  /* Datadog purple: identity and the depth ramp, never a control. */
+  --accent: #632ca6;
+  --accent-subtle: #f3ecfa;
+
+  --danger: #d3213a;
+  --danger-text: #c01f36;
+  --danger-subtle: #fdedef;
+  --warning: #f99d02;
+  --warning-text: #8a5a00;
+  --success: #41c464;
+  --success-text: #1c7a3c;
 
   --depth-1: #3d1866;
   --depth-2: #542a85;
@@ -53,12 +76,13 @@
   --depth-5: #916bc7;
   --depth-6: #9d80cf;
 
-  --shadow-overlay: 0 16px 48px rgba(20, 21, 28, 0.18);
-  --shadow-raised: 0 1px 2px rgba(20, 21, 28, 0.06);
+  --shadow-overlay: 0 16px 48px rgba(32, 47, 56, 0.18);
+  --shadow-raised: 0 1px 2px rgba(32, 47, 56, 0.08);
 
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
+  /* DRUIDS corners are tight: controls barely round, containers a little more. */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
   --radius-pill: 999px;
 
   --space-1: 4px;
@@ -91,30 +115,38 @@
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --surface-canvas: #131419;
-  --surface-raised: #1b1c23;
-  --surface-overlay: #23242d;
-  --surface-sunken: #0e0f14;
+  --surface-canvas: #16191d;
+  --surface-raised: #1c2025;
+  --surface-overlay: #22272d;
+  --surface-sunken: #101317;
 
-  --border-subtle: #292a34;
-  --border-default: #383946;
-  --border-strong: #4d4e5f;
+  --border-subtle: #2a2f36;
+  --border-default: #39404a;
+  --border-strong: #646e7a;
 
-  --text-primary: #eaeaf1;
-  --text-secondary: #9a9bb0;
+  --text-primary: #e6eaee;
+  --text-secondary: #98a2ac;
   --text-inverse: #ffffff;
 
-  --brand: #8000ff;
-  --brand-text: #b087ff;
-  --brand-hover: #9a4dff;
-  --brand-subtle: #241a38;
-  --focus-ring: #a366ff;
+  /* Held back from the brightest blue that reads well here: this fill carries
+     white text, so it is pinned to whatever keeps that at 4.5:1. */
+  --brand: #1a76c7;
+  --brand-text: #6cb4f0;
+  --brand-hover: #1b6eb8;
+  --brand-subtle: #14283c;
+  --focus-ring: #6cb4f0;
+  --focus-halo: rgba(108, 180, 240, 0.3);
 
-  --danger: #ff5c78;
-  --danger-text: #ff8098;
-  --danger-subtle: #2d1620;
-  --warning: #f2a900;
-  --success: #3fc45f;
+  --accent: #a980e6;
+  --accent-subtle: #251c3a;
+
+  --danger: #d3324a;
+  --danger-text: #ff8b9d;
+  --danger-subtle: #2f1720;
+  --warning: #f0a92e;
+  --warning-text: #f0a92e;
+  --success: #4cc46c;
+  --success-text: #4cc46c;
 
   /* Mirrored: depth 1 stays the most prominent, which on a dark canvas means
      the lightest rather than the darkest. */

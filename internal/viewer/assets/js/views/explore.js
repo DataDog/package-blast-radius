@@ -262,7 +262,7 @@ export function createExploreView({ summary, router, detail }) {
   );
 
   const resultsInfo = el('span');
-  const downloadLink = el('a', { class: 'button', href: '#', download: '' }, icons.download(), 'Export CSV');
+  const downloadLink = el('a', { class: 'button button--primary', href: '#', download: '' }, icons.download(), 'Export CSV');
 
   const pageSizeSelect = el(
     'select',

@@ -35,7 +35,7 @@ select {
 
 :focus-visible {
   outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline-offset: 1px;
   border-radius: var(--radius-sm);
 }
 
@@ -118,14 +118,15 @@ select {
   white-space: nowrap;
 }
 
+/* Purple, not blue: this is identity, and nothing about it is clickable. */
 .brand__mark {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--brand);
+  background: var(--accent);
   box-shadow:
-    0 0 0 3px var(--brand-subtle),
-    0 0 0 6px color-mix(in srgb, var(--brand-subtle) 55%, transparent);
+    0 0 0 3px var(--accent-subtle),
+    0 0 0 6px color-mix(in srgb, var(--accent-subtle) 55%, transparent);
 }
 
 .spacer {
@@ -163,8 +164,15 @@ select {
   color: var(--text-primary);
 }
 
+.tab:hover::after {
+  background: var(--border-default);
+}
+
+/* DRUIDS marks the current tab in the action colour, label and rule together,
+   so the row reads the same whether you scan the text or the underline. */
 .tab[aria-current='page'] {
-  color: var(--text-primary);
+  color: var(--brand-text);
+  font-weight: 600;
 }
 
 .tab[aria-current='page']::after {
@@ -565,10 +573,14 @@ button.bar-row__value {
   color: var(--text-secondary);
 }
 
+/* The DRUIDS focused-field treatment: the border takes the action colour and a
+   soft halo of the same hue sits outside it. The faint blue wash inside is what
+   distinguishes "typing here" from "could type here". */
 .searchbar__input:focus {
   outline: none;
   border-color: var(--brand);
-  box-shadow: 0 0 0 3px var(--brand-subtle);
+  background: var(--brand-subtle);
+  box-shadow: 0 0 0 3px var(--focus-halo);
 }
 
 .searchbar__hint {
@@ -727,6 +739,18 @@ button.bar-row__value {
   cursor: pointer;
 }
 
+.select:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--focus-halo);
+}
+
+/*
+ * Two button levels, which is all this report needs. The default is the DRUIDS
+ * secondary: a bordered control on the canvas. `--primary` is the filled blue
+ * one, spent on the single action a page is actually for, so that a page never
+ * shows two things competing to be pressed.
+ */
 .button {
   display: inline-flex;
   align-items: center;
@@ -738,6 +762,7 @@ button.bar-row__value {
   background: var(--surface-canvas);
   color: var(--text-primary);
   font-size: var(--text-sm);
+  font-weight: 500;
   cursor: pointer;
   text-decoration: none;
 }
@@ -755,6 +780,17 @@ button.bar-row__value {
 .button svg {
   width: 13px;
   height: 13px;
+}
+
+.button--primary {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--text-inverse);
+}
+
+.button--primary:hover:not(:disabled) {
+  border-color: var(--brand-hover);
+  background: var(--brand-hover);
 }
 
 .toolbar {
@@ -808,6 +844,7 @@ table.data thead th {
   padding-top: var(--space-2);
   padding-bottom: var(--space-2);
   background: var(--surface-raised);
+  border-bottom-color: var(--border-default);
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: var(--eyebrow-tracking);
@@ -1227,14 +1264,16 @@ table.data tbody tr[aria-selected='true'] td {
   color: var(--text-primary);
 }
 
+/* A DRUIDS StatusPill: filled, not tinted. The compromised package is the one
+   fact in the report that should be readable from across the room. */
 .tag {
   display: inline-block;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
-  background: var(--danger-subtle);
-  color: var(--danger-text);
+  background: var(--danger);
+  color: var(--text-inverse);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: var(--eyebrow-tracking);
   text-transform: uppercase;
 }
@@ -1398,6 +1437,15 @@ table.data tbody tr[aria-selected='true'] td {
 }
 
 .gnode--root .gnode__box {
+  stroke: var(--danger);
+  fill: var(--danger-subtle);
+}
+
+/* The compromised package is always the selected node, and selection blue would
+   be the one thing allowed to overwrite red. It is not: selection shows through
+   the heavier stroke instead, and the hue keeps meaning "compromised". */
+.gnode--root.is-selected .gnode__box,
+.gnode--target.is-selected .gnode__box {
   stroke: var(--danger);
   fill: var(--danger-subtle);
 }
