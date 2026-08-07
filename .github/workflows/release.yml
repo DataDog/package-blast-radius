@@ -35,6 +35,7 @@ jobs:
       - name: Install Linux cross-toolchains
         run: |
           brew tap messense/macos-cross-toolchains
+          brew trust messense/macos-cross-toolchains
           brew install x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
 
       - name: Run GoReleaser
