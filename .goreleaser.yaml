@@ -1,0 +1,107 @@
+version: 2
+
+project_name: blast-radius
+
+before:
+  hooks:
+    - go mod tidy
+
+# duckdb-go links a prebuilt, platform-specific static libduckdb via CGO, which
+# in turn needs a real libstdc++ (Linux) / libc++ (macOS) from a matching
+# toolchain -- a lightweight cross-compiler like `zig cc` can't provide that.
+# This release therefore runs on a single macOS runner (see
+# .github/workflows/release.yml) using:
+#   - Xcode's own clang to build both darwin/amd64 and darwin/arm64
+#   - real GNU cross-toolchains (messense/macos-cross-toolchains) to build
+#     both linux/amd64 and linux/arm64
+builds:
+  - id: linux-amd64
+    binary: blast-radius
+    dir: cmd/blast-radius
+    goos: [linux]
+    goarch: [amd64]
+    env:
+      - CGO_ENABLED=1
+      - CC=x86_64-unknown-linux-gnu-gcc
+      - CXX=x86_64-unknown-linux-gnu-g++
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+  - id: linux-arm64
+    binary: blast-radius
+    dir: cmd/blast-radius
+    goos: [linux]
+    goarch: [arm64]
+    env:
+      - CGO_ENABLED=1
+      - CC=aarch64-unknown-linux-gnu-gcc
+      - CXX=aarch64-unknown-linux-gnu-g++
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+  - id: darwin-amd64
+    binary: blast-radius
+    dir: cmd/blast-radius
+    goos: [darwin]
+    goarch: [amd64]
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+  - id: darwin-arm64
+    binary: blast-radius
+    dir: cmd/blast-radius
+    goos: [darwin]
+    goarch: [arm64]
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+brews:
+  - name: blast-radius
+    repository:
+      owner: DataDog
+      name: package-blast-radius
+      branch: "homebrew-update-{{ .Version }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: DataDog
+          name: package-blast-radius
+          branch: main
+    directory: Formula
+    url_template: "https://github.com/DataDog/package-blast-radius/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    homepage: "https://github.com/DataDog/package-blast-radius"
+    description: "Analyze the blast radius of compromised open-source packages"
+    install: |
+      bin.install "blast-radius"
