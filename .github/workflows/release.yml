@@ -46,3 +46,10 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print Homebrew formula PR link
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          branch="homebrew-update-${version}"
+          echo "Homebrew formula pushed to branch '${branch}'. Open a PR:" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/${{ github.repository }}/compare/main...${branch}?expand=1" | tee -a "$GITHUB_STEP_SUMMARY"

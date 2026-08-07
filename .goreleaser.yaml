@@ -94,11 +94,9 @@ brews:
       name: package-blast-radius
       branch: "homebrew-update-{{ .Version }}"
       pull_request:
-        enabled: true
-        base:
-          owner: DataDog
-          name: package-blast-radius
-          branch: main
+        # The DataDog org blocks GITHUB_TOKEN from opening PRs, so goreleaser
+        # only pushes the branch; release.yml prints the compare/PR link.
+        enabled: false
     directory: Formula
     url_template: "https://github.com/DataDog/package-blast-radius/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
     homepage: "https://github.com/DataDog/package-blast-radius"
