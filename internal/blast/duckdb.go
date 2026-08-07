@@ -12,9 +12,8 @@ import (
 	_ "github.com/duckdb/duckdb-go/v2"
 )
 
-// DuckDBSource queries a DuckDB database over a single native connection kept
-// open for the lifetime of a run. Reusing one connection (rather than opening
-// a fresh one per query) is what lets the frontier temp tables below survive
+// DuckDBSource queries DuckDB over one native connection kept open for the
+// run. Reusing one connection is what lets the frontier temp tables survive
 // across depths.
 type DuckDBSource struct {
 	db   *sql.DB
@@ -67,10 +66,9 @@ func (s *DuckDBSource) QueryDirectDependents(targetName string, yield func(RawDe
 	return scanDependentRows(rows, yield)
 }
 
-// QueryDependentsOfNames hands yield every edge whose DepName is in the given
-// set of names. The names are bulk-loaded into a temp table via the appender
-// API rather than a large IN/CSV clause, so DuckDB can plan a hash join
-// instead of parsing a giant query or CSV file.
+// QueryDependentsOfNames hands yield every edge whose DepName is in names. The
+// names are bulk-loaded into a temp table rather than a large IN/CSV clause,
+// so DuckDB plans a hash join instead of parsing a giant query.
 func (s *DuckDBSource) QueryDependentsOfNames(names []string, yield func(RawDependent) error) error {
 	if len(names) == 0 {
 		return nil
@@ -95,10 +93,9 @@ func (s *DuckDBSource) QueryDependentsOfNames(names []string, yield func(RawDepe
 	return scanDependentRows(rows, yield)
 }
 
-// QueryPublishedAt looks up when each of pkgs was published, keyed by
-// "name@version". A missing "versions" table (built only when download-data
-// exported PackageVersions) is not an error: the caller gets an empty map and
-// falls back to treating those packages as having an unknown publish date.
+// QueryPublishedAt looks up publish dates keyed by "name@version". A missing
+// "versions" table (only when download-data exported PackageVersions) isn't an
+// error: the caller gets an empty map and treats dates as unknown.
 func (s *DuckDBSource) QueryPublishedAt(pkgs []PackageVersion) (map[string]time.Time, error) {
 	if len(pkgs) == 0 {
 		return nil, nil
@@ -141,9 +138,8 @@ func (s *DuckDBSource) QueryPublishedAt(pkgs []PackageVersion) (map[string]time.
 	return result, nil
 }
 
-// scanDependentRows reads rows as they arrive rather than collecting them
-// first: a popular package has millions of direct dependents, and holding a
-// whole depth's worth of them costs gigabytes.
+// scanDependentRows streams rows rather than collecting — a popular package
+// has millions of direct dependents, and a whole depth's worth is gigabytes.
 func scanDependentRows(rows *sql.Rows, yield func(RawDependent) error) error {
 	defer rows.Close()
 	for rows.Next() {
@@ -158,14 +154,10 @@ func scanDependentRows(rows *sql.Rows, yield func(RawDependent) error) error {
 	return rows.Err()
 }
 
-// appendStrings bulk-loads a single VARCHAR column into table, which must be
-// a temp table created by the caller with a name we control (never user
-// input), since it is interpolated directly into the INSERT statement.
-//
-// The DuckDB appender API is the usual fast path for bulk loads, but it
-// refuses to attach to a connection opened in read-only mode even when the
-// target table is a session-local temp table, so a prepared multi-row
-// INSERT is used instead.
+// appendStrings bulk-loads one VARCHAR column into a caller-created temp table
+// (name we control, never user input, interpolated into the INSERT). The
+// appender API is the usual fast path but refuses read-only connections even
+// for session-local temp tables, so a prepared multi-row INSERT is used.
 func (s *DuckDBSource) appendStrings(table string, values []string) error {
 	ctx := context.Background()
 	stmt, err := s.conn.PrepareContext(ctx, fmt.Sprintf(`INSERT INTO %s VALUES (?)`, table))

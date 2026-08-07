@@ -13,9 +13,8 @@ const (
 	PyPI Ecosystem = "PYPI"
 )
 
-// ecosystemInfo gathers everything that differs between package ecosystems.
-// Supporting a new one means adding an entry here plus its matcher and,
-// optionally, a download enricher.
+// ecosystemInfo gathers everything that differs between ecosystems. Adding a
+// new one means an entry here plus its matcher and, optionally, an enricher.
 type ecosystemInfo struct {
 	cliName string
 	dbName  string
@@ -26,9 +25,8 @@ type ecosystemInfo struct {
 	bqSystem string
 	// parquetPrefix names the exported shards: "npm-edges" -> npm-edges-*.parquet.
 	parquetPrefix string
-	// versionsParquetPrefix names the exported publish-date shards, used to
-	// decide whether a bundled dependency edge predates or postdates a
-	// compromise. Empty means no publish-date export is configured.
+	// versionsParquetPrefix names the publish-date shards, used to decide whether
+	// a bundled edge predates/postdates a compromise. Empty = no export.
 	versionsParquetPrefix string
 }
 
@@ -108,9 +106,9 @@ func (e Ecosystem) SupportsEnrichment() bool {
 	return ecosystems[e].enrich != nil
 }
 
-// Enrich populates WeeklyDownloads in place. It is best effort: a returned
-// error reports how much data is missing, not that the run should be abandoned.
-// No-op for ecosystems without a registry source.
+// Enrich populates WeeklyDownloads in place, best effort: a returned error
+// reports missing data, not that the run should be abandoned. No-op without a
+// registry source.
 func Enrich(ctx context.Context, system Ecosystem, affected []AffectedPackage, workers int) error {
 	info := ecosystems[system]
 	if info.enrich == nil {

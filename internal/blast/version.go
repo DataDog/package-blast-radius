@@ -14,12 +14,9 @@ func ParseVersion(s string) (*semver.Version, bool) {
 	return getCachedVersion(s)
 }
 
-// CompareVersions orders two version strings, returning <0, 0 or >0.
-//
-// Real semver comparison is used when both sides parse, so prereleases order
-// correctly (1.0.0-beta < 1.0.0). Registry versions that are not valid semver
-// fall back to a numeric-segment comparison, and a parseable version always
-// sorts above an unparseable one so the junk collects at one end.
+// CompareVersions orders two version strings (<0, 0, >0). Real semver when
+// both parse (so prereleases order correctly); otherwise numeric-segment
+// fallback, with a parseable version always above an unparseable one.
 func CompareVersions(a, b string) int {
 	va, aOK := getCachedVersion(a)
 	vb, bOK := getCachedVersion(b)
@@ -36,9 +33,8 @@ func CompareVersions(a, b string) int {
 	}
 }
 
-// compareNumericSegments is the best-effort fallback for versions semver
-// rejects. It compares the leading numeric segments and treats a longer run of
-// equal segments as greater, so "1.2" sorts below "1.2.1".
+// compareNumericSegments is the fallback for versions semver rejects: compares
+// leading numeric segments, longer run of equals wins ("1.2" < "1.2.1").
 func compareNumericSegments(a, b string) int {
 	pa := numericSegments(a)
 	pb := numericSegments(b)

@@ -87,7 +87,7 @@ func boolPtr(b bool) *bool { return &b }
 
 // edgeExportSQL builds the dependency-edge query for one ecosystem and snapshot.
 // The self-join on `From` keeps only edges whose parent is the row's own
-// (Name, Version), which is what makes the result a direct-dependency table.
+// (Name, Version), making the result a direct-dependency table.
 func edgeExportSQL(bqSystem, snapshotDate string) string {
 	return fmt.Sprintf(
 		"SELECT Name, Version, `To`.Name AS DepName, Requirement\n"+
@@ -98,10 +98,9 @@ func edgeExportSQL(bqSystem, snapshotDate string) string {
 		snapshotDate, bqSystem)
 }
 
-// versionExportSQL builds the publish-date query for one ecosystem and
-// snapshot. PublishedAt is what a bundled/nested dependency edge is judged
-// against: a package can only have bundled a version that already existed
-// when it was itself published.
+// versionExportSQL builds the publish-date query. PublishedAt is what a bundled
+// edge is judged against: a package can only have bundled a version that already
+// existed when it was itself published.
 func versionExportSQL(bqSystem, snapshotDate string) string {
 	return fmt.Sprintf(
 		"SELECT Name, Version, UpstreamPublishedAt AS PublishedAt\n"+
@@ -146,11 +145,11 @@ func (c *client) estimateBytes(ctx context.Context, projectID, sql string) (int6
 	return bytes, nil
 }
 
-// priceAndConfirm dry-runs sql, reports what it will cost, and requires a yes
-// before the caller bills anything. When the dry run cannot produce a figure it
-// still asks, rather than proceeding silently with an unknown bill.
-// errEmptyScan reports a dry run that would read nothing. The caller knows which
-// filter is at fault and turns this into a message that names it.
+// priceAndConfirm dry-runs sql, reports the cost, and requires a yes before
+// the caller bills anything. When the dry run can't produce a figure it still
+// asks, rather than proceeding silently with an unknown bill.
+// errEmptyScan reports a dry run that would read nothing; the caller knows which
+// filter is at fault and names it.
 var errEmptyScan = errors.New("the query would read no data")
 
 func (c *client) priceAndConfirm(ctx context.Context, projectID, sql string, ask *confirmer, r *reporter) error {
@@ -159,9 +158,9 @@ func (c *client) priceAndConfirm(ctx context.Context, projectID, sql string, ask
 		r.field("cost", "could not be priced: %v", err)
 		return ask.confirm("Run it anyway, without knowing the cost?")
 	}
-	// The query filters a partitioned table, so a dry run that reads nothing
-	// means no partition matched. Prompting would offer a free query that
-	// produces an empty export, and the mistake would only surface at the build.
+	// The query filters a partitioned table, so a zero-byte dry run means no
+	// partition matched. Prompting would offer a free query that produces an
+	// empty export, surfacing only at build time.
 	if bytes == 0 {
 		return errEmptyScan
 	}
@@ -223,9 +222,9 @@ func pollInterval(attempt int) time.Duration {
 	return d
 }
 
-// waitForJob polls until the job reaches DONE, then converts a job-level error
-// into a Go error. A DONE job with errorResult set has failed, which is the case
-// a zero exit code from the bq CLI used to hide.
+// waitForJob polls until DONE, then converts a job-level error to a Go error.
+// A DONE job with errorResult set has failed — the case a zero exit code from
+// the bq CLI used to hide.
 func (c *client) waitForJob(ctx context.Context, projectID, jobID string) error {
 	endpoint := fmt.Sprintf("%s/projects/%s/jobs/%s?location=%s",
 		c.bigQueryURL, url.PathEscape(projectID), url.PathEscape(jobID), datasetLocation)

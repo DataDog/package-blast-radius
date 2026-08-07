@@ -15,9 +15,8 @@ import (
 	"time"
 )
 
-// downloadWorkers bounds concurrent shard fetches. The payload is ~1000 objects
-// totalling ~20 GB, so this is about saturating the link without opening a
-// thousand sockets.
+// downloadWorkers bounds concurrent shard fetches. ~1000 objects totalling
+// ~20 GB — saturate the link without opening a thousand sockets.
 const downloadWorkers = 8
 
 // downloadReportEvery keeps a thousand-shard download to a handful of lines.
@@ -65,9 +64,9 @@ func (c *client) createBucket(ctx context.Context, projectID, bucket string) err
 }
 
 // listPrefix returns every object under prefix, following pagination. The bash
-// version relied on `gcloud storage ls` to page implicitly; here it is explicit,
-// because a truncated listing would silently under-report both the stale-export
-// check and the download set.
+// version relied on `gcloud storage ls` to page implicitly; here it's explicit —
+// a truncated listing would silently under-report the stale-export check and the
+// download set.
 func (c *client) listPrefix(ctx context.Context, bucket, prefix string) ([]gcsObject, error) {
 	var all []gcsObject
 	pageToken := ""
@@ -188,9 +187,8 @@ feed:
 	return nil
 }
 
-// downloadObject writes one object to a temporary file and renames it into place
-// on success, so an interrupted run never leaves a partial shard for the DuckDB
-// glob to ingest.
+// downloadObject writes one object to a temp file and renames it into place on
+// success, so an interrupted run never leaves a partial shard for DuckDB to ingest.
 func (c *client) downloadObject(ctx context.Context, bucket, objectName, destDir string) (int64, error) {
 	endpoint := fmt.Sprintf("%s/b/%s/o/%s?alt=media",
 		c.storageURL, url.PathEscape(bucket), url.PathEscape(objectName))

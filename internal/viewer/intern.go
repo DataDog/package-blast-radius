@@ -1,11 +1,9 @@
 package viewer
 
-// interner maps repeated strings to int32 ids.
-//
-// A report's paths are overwhelmingly repetition: the same package names,
-// the same declared ranges like "^1.0.0", and the same intermediate versions
+// interner maps repeated strings to int32 ids. A report's paths are mostly
+// repetition — the same names, ranges like "^1.0.0", and intermediate versions
 // recur across millions of hops. Storing an id instead of a string header plus
-// its bytes is the difference between holding a gigabyte-scale report and not.
+// bytes is the difference between holding a gigabyte-scale report and not.
 type interner struct {
 	ids  map[string]int32
 	strs []string
@@ -32,8 +30,8 @@ func (in *interner) str(id int32) string {
 	return in.strs[id]
 }
 
-// Always returns a non-nil slice: a depth-1 route has no intermediate hops,
-// and that is an empty list rather than a missing one.
+// Always non-nil: a depth-1 route has no intermediate hops, an empty list not a
+// missing one.
 func (in *interner) strs32(ids []int32) []string {
 	out := make([]string, len(ids))
 	for i, id := range ids {
@@ -42,8 +40,8 @@ func (in *interner) strs32(ids []int32) []string {
 	return out
 }
 
-// seal releases the lookup map. Reads only ever go id -> string, and on the
-// largest reports the map outweighs the string table it indexes.
+// seal releases the lookup map. Reads only go id -> string, and on the largest
+// reports the map outweighs the string table it indexes.
 func (in *interner) seal() {
 	in.ids = nil
 }

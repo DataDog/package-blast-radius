@@ -13,9 +13,9 @@ import (
 )
 
 // buildDatabase creates an indexed DuckDB database from the parquet shards in
-// parquetDir. The index on DepName is what makes reverse dependency lookup fast,
-// and it is the whole reason for materialising a database instead of querying the
-// parquet files directly.
+// parquetDir. The DepName index is what makes reverse dependency lookup fast —
+// the whole reason for materialising a database instead of querying parquet
+// directly.
 func buildDatabase(ctx context.Context, parquetDir, dbPath, parquetPrefix, versionsPrefix string, r *reporter) error {
 	shards, err := filepath.Glob(filepath.Join(parquetDir, parquetPrefix+"-*.parquet"))
 	if err != nil {
@@ -41,9 +41,9 @@ func buildDatabase(ctx context.Context, parquetDir, dbPath, parquetPrefix, versi
 		"CREATE TABLE edges AS SELECT * FROM '%s';\nCREATE INDEX idx_depname ON edges(DepName);",
 		escapeSingleQuotes(glob))
 
-	// The versions table is optional: an older parquet directory downloaded
-	// before publish dates were exported has no such shards, and the database
-	// still builds, just without the data QueryPublishedAt needs.
+	// The versions table is optional: an older parquet dir from before publish
+	// dates were exported has no such shards, and the database still builds —
+	// just without the data QueryPublishedAt needs.
 	if versionsPrefix != "" {
 		versionShards, err := filepath.Glob(filepath.Join(parquetDir, versionsPrefix+"-*.parquet"))
 		if err != nil {

@@ -17,23 +17,23 @@ import (
 	"github.com/DataDog/package-blast-radius/internal/blast"
 )
 
-// notEnriched marks a weekly download count as unknown rather than zero.
-// `analyze` writes -1 for every package when run without
-// --enrich-with-download-count, and a genuine zero must not be confused with it.
+// notEnriched marks a weekly download count as unknown, not zero. `analyze`
+// writes -1 when run without --enrich-with-download-count; a real zero must
+// not be confused with it.
 const notEnriched int64 = -1
 
-// versionPath is one affected version's concrete route to a compromised
-// package. The intermediate package names live on the parent route, so only
-// the per-hop versions and declared ranges vary between versions sharing it.
+// versionPath is one affected version's concrete route. Intermediate package
+// names live on the parent route, so only per-hop versions and ranges vary
+// between versions sharing it.
 type versionPath struct {
 	Version       string
 	HopVersionIDs []int32 // len == len(route.HopIDs)
 	ReqIDs        []int32 // len == depth; the range declared at each hop
 }
 
-// route is one distinct chain of intermediate packages to a compromised
-// target. Versions whose paths traverse the same chain of package *names*
-// collapse into a single route, differing only in their versionPath.
+// route is one distinct chain of intermediate packages to a target.
+// Versions traversing the same chain of package *names* collapse into one
+// route, differing only in their versionPath.
 type route struct {
 	ID       string  // stable, derived from the chain's content
 	HopIDs   []int32 // intermediate package names; source and target excluded
@@ -52,9 +52,8 @@ type packageEntry struct {
 	TargetIDs       []int32
 	Routes          []route
 
-	// Newest and oldest version the report actually recorded. These bound a
-	// sparse set, not a continuous semver range: versions the traversal never
-	// reached are simply absent.
+	// Newest/oldest version the report recorded. These bound a sparse set, not a
+	// continuous range — versions the traversal never reached are absent.
 	LatestVersion string
 	OldestVersion string
 }
@@ -62,8 +61,7 @@ type packageEntry struct {
 func (p *packageEntry) enriched() bool { return p.WeeklyDownloads != notEnriched }
 
 // targetSummary counts what a compromised package was *attributed* in this
-// report. Traversal records one path per affected name@version, so these are
-// attribution counts and not proof that no other target could reach a package.
+// report — attribution counts, not proof no other target could reach a package.
 type targetSummary struct {
 	Name               string
 	Version            string
@@ -78,14 +76,14 @@ type store struct {
 	packages []packageEntry
 	byName   map[string]int // package name -> index into packages
 
-	// dependents[X] is the set of packages that depend on X. Paths run
-	// affected -> target, but the graph view expands target -> outward, so the
-	// adjacency is stored in the direction the reader traverses it.
+	// dependents[X] is the set of packages that depend on X. Paths run affected
+	// -> target, but the graph view expands target -> outward, so adjacency is
+	// stored in the reader's direction.
 	dependents map[int32][]int32
 
-	// nodeIDs resolves a graph node's name back to its interned id. The
-	// interner's own lookup map is released once the store is built, and a
-	// graph node can be an intermediate hop that never appears in byName.
+	// nodeIDs resolves a graph node's name to its interned id. The interner's
+	// lookup map is released after build, and a graph node can be an intermediate
+	// hop absent from byName.
 	nodeIDs map[string]int32
 
 	targets            []targetSummary
@@ -94,9 +92,8 @@ type store struct {
 	combinedDownloads  int64       // notEnriched when no package is enriched
 	skippedPathless    int
 
-	// The Pareto ranking and the scope breakdown are derived on first request
-	// rather than at build time; see paretoStats. Everything else on the store
-	// is immutable once built.
+	// Pareto ranking and scope breakdown are derived on first request, not at
+	// build time. Everything else is immutable once built.
 	paretoOnce sync.Once
 	pareto     paretoResponse
 	scopesOnce sync.Once
@@ -116,10 +113,9 @@ func (s *store) pkg(name string) *packageEntry {
 // Build
 // ---------------------------------------------------------------------------
 
-// buildKey identifies a route while the store is being built: a package plus
-// the chain of names it traverses. One map for the whole build rather than a
-// map per package, because the overwhelming majority of packages have exactly
-// one route and would waste an allocation each.
+// buildKey identifies a route during build: a package plus its name chain.
+// One map for the whole build rather than per package — most packages have
+// exactly one route and would waste an allocation each.
 type buildKey struct {
 	pkgID int32
 	chain string
@@ -147,8 +143,7 @@ func newBuilder(estimatedPackages int) *builder {
 }
 
 func (b *builder) add(a *blast.JSONAffected) {
-	// Every affected entry carries a path beginning with itself; without one
-	// there is no depth and no place in the graph, so it cannot be shown.
+	// An affected entry with no path has no depth and no place in the graph.
 	if len(a.Path) == 0 {
 		b.skipped++
 		return
@@ -244,10 +239,9 @@ func (b *builder) countTargetAttribution(a *blast.JSONAffected, targetID, nameID
 	}
 }
 
-// routeChain is the grouping key for a route: the target plus the chain of
-// intermediate package *names*. Intermediate versions are deliberately
-// excluded, so express@4.21.2 -> body-parser@1.20.0 -> axios and
-// express@4.20.0 -> body-parser@1.19.0 -> axios are one route "via body-parser".
+// routeChain is the route grouping key: target plus the chain of intermediate
+// package *names* (versions excluded), so express@4.21.2 -> body-parser@1.20.0
+// -> axios and express@4.20.0 -> body-parser@1.19.0 -> axios are one route.
 func routeChain(target string, path []blast.JSONStep) string {
 	var sb strings.Builder
 	sb.WriteString(target)
@@ -258,10 +252,9 @@ func routeChain(target string, path []blast.JSONStep) string {
 	return sb.String()
 }
 
-// routeID derives a route's identifier from its content so it stays stable
-// across reloads of the same report. Indices would not: they leak into
-// bookmarks once view state is URL-synced, and would silently repoint if
-// iteration order ever changed.
+// routeID derives a route's id from its content, stable across reloads.
+// Indices would leak into bookmarks once view state is URL-synced and silently
+// repoint if iteration order changed.
 func routeID(chain string) string {
 	h := fnv.New64a()
 	h.Write([]byte(chain))
@@ -406,10 +399,9 @@ func sortRoutes(routes []route) {
 	})
 }
 
-// disambiguateRouteIDs guards the content-derived IDs against a hash
-// collision within one package. A 48-bit hash over at most a few hundred
-// routes makes this vanishingly unlikely, but a silent collision would point
-// a bookmarked route at the wrong chain.
+// disambiguateRouteIDs guards content-derived IDs against a hash collision
+// within one package. A 48-bit hash over a few hundred routes makes this
+// vanishingly unlikely, but a silent collision would repoint a bookmark.
 func disambiguateRouteIDs(routes []route) {
 	seen := make(map[string]int, len(routes))
 	for i := range routes {
@@ -421,8 +413,8 @@ func disambiguateRouteIDs(routes []route) {
 	}
 }
 
-// splitTargetRef decomposes "axios@1.14.1" and "@scope/pkg@1.2.3". Scoped npm
-// names begin with @, so the split has to be on the last one.
+// splitTargetRef decomposes "axios@1.14.1" and "@scope/pkg@1.2.3". Scoped
+// names begin with @, so split on the last @.
 func splitTargetRef(ref string) (name, version string) {
 	if i := strings.LastIndex(ref, "@"); i > 0 {
 		return ref[:i], ref[i+1:]
@@ -431,12 +423,9 @@ func splitTargetRef(ref string) (name, version string) {
 }
 
 // rankedTargets is every compromised version the report declares, ordered by
-// how many packages it was attributed.
-//
-// s.targets is derived from affected entries, so a compromised version nothing
-// depended on never appears there. The analyzer's own target list is the
-// honest denominator, so those are folded back in with zero attribution rather
-// than dropped.
+// attribution. s.targets is derived from affected entries, so a version
+// nothing depended on never appears there; the analyzer's target list is the
+// honest denominator, so those are folded back in with zero attribution.
 func (s *store) rankedTargets() []targetSummary {
 	out := slices.Clone(s.targets)
 	seen := make(map[string]bool, len(s.meta.Targets))
@@ -467,9 +456,8 @@ func targetName(ref string) string {
 // Load
 // ---------------------------------------------------------------------------
 
-// maybeDecompress wraps f in a gzip reader if it's gzip-compressed, detected
-// by magic bytes rather than the file extension since callers may rename
-// downloaded reports.
+// maybeDecompress wraps f in a gzip reader if the magic bytes say so, not the
+// extension — callers may rename downloaded reports.
 func maybeDecompress(f *os.File, path string) (io.Reader, error) {
 	br := bufio.NewReader(f)
 	magic, err := br.Peek(2)
@@ -487,9 +475,8 @@ func maybeDecompress(f *os.File, path string) (io.Reader, error) {
 }
 
 // loadStore stream-decodes a `blast-radius analyze --output json` file into an
-// aggregated store. Entries are folded in as they arrive rather than collected
-// first: these files reach a gigabyte, and holding the decoded array costs
-// more than the aggregate it produces.
+// aggregated store. Entries are folded in as they arrive — these files reach a
+// gigabyte, and holding the decoded array costs more than the aggregate.
 func loadStore(jsonPath string) (*store, error) {
 	fmt.Fprintf(os.Stderr, "Loading %s...\n", jsonPath)
 	start := time.Now()
@@ -544,8 +531,7 @@ func loadStore(jsonPath string) (*store, error) {
 		case "elapsed":
 			err = dec.Decode(&summary.Elapsed)
 		case "affected":
-			// unique_packages may not have been read yet; it only sizes the
-			// initial allocations.
+			// unique_packages may not be read yet; it only sizes initial allocations.
 			b = newBuilder(max(summary.UniquePackages, 1024))
 			err = streamAffected(dec, b)
 		default:

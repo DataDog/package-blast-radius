@@ -32,11 +32,10 @@ type dependentSource interface {
 	QueryPublishedAt([]PackageVersion) (map[string]time.Time, error)
 }
 
-// parseBundledName splits deps.dev's synthetic name for an npm bundled/nested
-// dependency-graph node, e.g. "cloudstructs>0.6.11>@types/keyv", into the root
-// package that did the bundling and the version it bundled at. Real npm names
-// never contain '>', so three '>'-separated parts unambiguously mean this is
-// one of these synthetic nodes rather than an installable package.
+// parseBundledName splits deps.dev's synthetic bundled-node name, e.g.
+// "cloudstructs>0.6.11>@types/keyv", into the bundling root and the version it
+// bundled. Real npm names never contain '>', so three '>'-separated parts is
+// unambiguously a synthetic node.
 func parseBundledName(name string) (rootName, rootVersion string, ok bool) {
 	parts := strings.SplitN(name, ">", 3)
 	if len(parts) < 3 {
@@ -45,13 +44,12 @@ func parseBundledName(name string) (rootName, rootVersion string, ok bool) {
 	return parts[0], parts[1], true
 }
 
-// ParseCompromisedCSV reads one package per line, in either of two shapes:
+// ParseCompromisedCSV reads one package per line in either shape:
 //
-//	package_name;version1,version2,...    (semicolon-separated, no header)
-//	package_name,"version1,version2"      (the affected-packages.csv an analyze run writes)
+//	package_name;version1,version2,...   (semicolon-separated, no header)
+//	package_name,"version1,version2"     (an affected-packages.csv from a prior run)
 //
-// Blank lines, lines starting with '#', and a leading "package_name,..." header
-// are ignored.
+// Blank lines, '#'-comments, and a "package_name,..." header are ignored.
 func ParseCompromisedCSV(path string, system Ecosystem) ([]TargetSpec, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -113,9 +111,9 @@ func ParseCompromisedCSV(path string, system Ecosystem) ([]TargetSpec, error) {
 	return targets, nil
 }
 
-// splitCompromisedRecord returns the package name and its comma-joined
-// versions, or nil if the record is neither supported shape. Package names
-// contain no ';' or ',', so a semicolon in the first field is unambiguous.
+// splitCompromisedRecord returns [name, comma-joined-versions], or nil if the
+// record is neither shape. Package names contain no ';' or ',', so a
+// semicolon in the first field is unambiguous.
 func splitCompromisedRecord(record []string) []string {
 	if strings.Contains(record[0], ";") {
 		parts := strings.SplitN(record[0], ";", 2)
@@ -230,16 +228,16 @@ func expandTargets(system Ecosystem, targets []TargetSpec) []PackageVersion {
 	return expanded
 }
 
-// matchKey identifies a declared dependency on a frontier package: every edge
-// carrying the same package name and version range resolves to the same frontier
-// entry within a depth. A comparable struct means lookups allocate nothing.
+// matchKey identifies a declared dependency on a frontier package: the same
+// (name, range) resolves to the same frontier entry within a depth. A
+// comparable struct keeps lookups allocation-free.
 type matchKey struct {
 	name        string
 	requirement string
 }
 
-// noMatchingParent marks a matchKey that no frontier version satisfies, so
-// negative results are cached as cheaply as positive ones.
+// noMatchingParent marks a matchKey no frontier version satisfies, so
+// negatives cache as cheaply as positives.
 const noMatchingParent = -1
 
 func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth int, source dependentSource, progress io.Writer, start time.Time) (*BlastResult, error) {
@@ -280,22 +278,18 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 			frontierByName[f.pkg.Name] = append(frontierByName[f.pkg.Name], f)
 		}
 
-		// Which frontier entry a (package, requirement) pair resolves to is fixed
-		// for the whole depth, and the same pair recurs across a great many edges:
-		// a popular package is depended on at the same range by thousands of
-		// dependents, and each recurrence would otherwise re-run semver matching
-		// against every frontier version of that package. Scoped to this depth
-		// because the indices point into frontierByName's slices, which are
-		// rebuilt above on every iteration.
+		// A (package, requirement) pair resolves to one frontier entry for the whole
+		// depth, and popular pairs recur across thousands of edges — caching avoids
+		// re-running semver matching each time. Scoped per depth: the indices point
+		// into frontierByName's slices, rebuilt every iteration.
 		resolvedParent := make(map[matchKey]int)
 
 		var nextFrontier []frontierEntry
 		edges := 0
 
-		// A bundled/nested edge (deps.dev's synthetic "root>version>local" name,
-		// see parseBundledName) can't be committed immediately: whether the root
-		// package actually shipped the compromised version depends on publish
-		// dates that are only known once the whole depth has been scanned.
+		// Bundled edges (deps.dev's "root>version>local" name, see parseBundledName)
+		// can't be committed yet: whether the root shipped the compromised version
+		// depends on publish dates known only after the full depth scan.
 		type bundledCandidate struct {
 			root          PackageVersion
 			matchedParent frontierEntry
@@ -303,9 +297,8 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 		var bundledCandidates []bundledCandidate
 		bundledSeen := make(map[string]bool)
 
-		// Edges are filtered as they arrive rather than collected first: a
-		// popular package has millions of direct dependents, and holding a whole
-		// depth's worth of them costs gigabytes.
+		// Filter edges as they arrive rather than collecting: a popular package has
+		// millions of direct dependents, and a whole depth's worth is gigabytes.
 		keepIfAffected := func(dep RawDependent) error {
 			edges++
 
@@ -389,19 +382,12 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 		}
 		totalEdges += edges
 
-		// A bundled root is included unless its own publish date provably
-		// predates the compromised target it would have had to freeze in.
-		// Bundling snapshots the entire resolved subtree at once, so whatever
-		// version of the target ended up frozen inside the root's tarball had
-		// to exist by the root's own publish date regardless of which
-		// intermediate version our traversal happened to match through - an
-		// older intermediate satisfying the same range could just as well
-		// have been the one actually bundled. Publish dates come from a
-		// separate deps.dev export and may be entirely unavailable (older
-		// local database); when they are, the candidate is included rather
-		// than silently dropped, since hiding a real compromise is worse than
-		// showing one that turns out to be safe. See README "Bundled npm
-		// dependencies".
+		// Include a bundled root unless its publish date provably predates the
+		// target's: bundling freezes the whole resolved subtree at once, so the
+		// target version had to exist by the root's publish date regardless of
+		// which intermediate version we matched through. When publish dates are
+		// unavailable, include the candidate — hiding a real compromise is worse
+		// than showing a safe one. See README "Bundled npm dependencies".
 		if len(bundledCandidates) > 0 {
 			lookups := make([]PackageVersion, 0, len(bundledCandidates)*2)
 			for _, c := range bundledCandidates {
@@ -474,7 +460,7 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 const reportArtifact = "blast-radius.json"
 
 // artifacts are written on every run so an investigation keeps its results
-// without the caller having to remember to redirect stdout.
+// without the caller remembering to redirect stdout.
 var artifacts = []struct {
 	name   string
 	format string

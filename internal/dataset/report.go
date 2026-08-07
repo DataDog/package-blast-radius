@@ -15,10 +15,9 @@ const (
 	reportLabelColumn = 13
 )
 
-// reporter prints a run's progress as numbered steps. It owns the numbering, so a
-// step that does not run leaves no gap in the count, and the indentation, so the
-// values inside a step line up in one column. Output is plain text with no escape
-// sequences, which keeps it readable in a file or a CI log.
+// reporter prints a run's progress as numbered steps. It owns the numbering (a
+// skipped step leaves no gap) and the indentation (values line up in one column).
+// Plain text, no escape sequences — readable in a file or CI log.
 type reporter struct {
 	out     io.Writer
 	current int
@@ -77,8 +76,8 @@ func (r *reporter) elapsed() time.Duration {
 const heartbeatInterval = 30 * time.Second
 
 // heartbeat prints message with elapsed time every interval until the returned
-// function is called. That function waits for the printing goroutine, so no line
-// can land after the caller has moved on to its next write.
+// function is called. It waits for the printing goroutine, so no line lands
+// after the caller has moved on.
 func (r *reporter) heartbeat(message string, interval time.Duration) (stop func()) {
 	done := make(chan struct{})
 	finished := make(chan struct{})

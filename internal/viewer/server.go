@@ -18,9 +18,8 @@ var embeddedAssets embed.FS
 // meta holds the summary fields of a blast radius JSON file, without the
 // (potentially gigabyte-sized) affected array.
 type meta struct {
-	// Target is a human-readable string, and in multi-target runs it is a
-	// sentence rather than a package: "2234 versions across 444 packages".
-	// Use Targets for anything that needs actual packages.
+	// Target is human-readable; in multi-target runs it's a sentence ("2234
+	// versions across 444 packages"). Use Targets for actual packages.
 	Target         string
 	Targets        []blast.JSONTarget
 	System         string
@@ -35,7 +34,7 @@ type meta struct {
 type Options struct {
 	Port int
 	// AssetsDir serves the UI from disk instead of the embedded copy, so the
-	// front end can be edited without rebuilding the binary.
+	// frontend can be edited without rebuilding.
 	AssetsDir string
 }
 
@@ -88,7 +87,7 @@ func registerRoutes(mux *http.ServeMux, s *store, sourcePath string, assets fs.F
 }
 
 // noCache keeps a --assets-dir edit one reload away. The server is local and
-// short-lived, so there is nothing to gain from caching the UI either way.
+// short-lived, so caching the UI gains nothing.
 func noCache(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -108,9 +107,9 @@ func formatPathForCSV(path []blast.JSONStep, target string) string {
 	return b.String()
 }
 
-// intParam reads a query parameter, falling back to def when it is absent or
-// unparseable. Values below min are clamped rather than replaced by def, so
-// offset=0 stays distinguishable from an unset offset.
+// intParam reads a query param, falling back to def when absent/unparseable.
+// Values below min are clamped, not replaced by def, so offset=0 stays
+// distinct from an unset offset.
 func intParam(s string, def, min int) int {
 	if s == "" {
 		return def

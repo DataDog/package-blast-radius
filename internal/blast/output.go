@@ -220,8 +220,8 @@ func truncateRunes(s string, limit int) string {
 	return string(runes[:limit-1]) + "…"
 }
 
-// The JSON* types below are the on-disk contract for `--output json`. The
-// viewer decodes the same types, so the two sides cannot drift apart.
+// The JSON* types are the on-disk contract for `--output json`; the viewer
+// decodes the same types so the two sides can't drift.
 
 type JSONStep struct {
 	Package     string `json:"package"`

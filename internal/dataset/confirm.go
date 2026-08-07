@@ -17,14 +17,14 @@ var ErrAborted = errors.New("aborted")
 // confirmer gates every irreversible or billable action behind an interactive
 // yes. Nothing that costs money or mutates cloud state happens without one.
 type confirmer struct {
-	// in is buffered once and reused, because a fresh bufio.Reader per prompt
-	// discards whatever the previous one read ahead, losing every answer after
-	// the first when stdin is a pipe rather than a terminal.
+	// in is buffered once and reused — a fresh bufio.Reader per prompt discards
+	// what the previous one read ahead, losing every answer after the first when
+	// stdin is a pipe.
 	in          *bufio.Reader
 	out         io.Writer
 	autoApprove bool
-	// interactive is false when stdin is not a terminal, in which case we refuse
-	// rather than block forever on a read nobody can answer.
+	// interactive is false when stdin isn't a terminal; we refuse rather than
+	// block forever on a read nobody can answer.
 	interactive bool
 }
 

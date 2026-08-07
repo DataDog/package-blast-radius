@@ -12,12 +12,11 @@ import (
 var constraintCache sync.Map // string -> *semver.Constraints or nil
 var versionCache sync.Map    // string -> *semver.Version or nil
 
-// Caching whole (constraint, version) results looks tempting here, since
-// npmMatches is called hundreds of millions of times in a deep run, but it does
-// not pay: measured over `analyze npm keyv 6.0.0 --depth 5`, 14.35M calls covered
-// 13.85M distinct pairs, i.e. 1.0x repetition. The parse caches above are worth
-// keeping because range *strings* repeat heavily; the (range, version)
-// combinations they get tested against essentially do not.
+// Caching whole (constraint, version) results looks tempting — npmMatches is
+// called hundreds of millions of times in a deep run — but it doesn't pay:
+// measured over `analyze npm keyv 6.0.0 --depth 5`, 14.35M calls covered 13.85M
+// distinct pairs (~1.0x repetition). The parse caches above are worth keeping
+// because range *strings* repeat heavily; the (range, version) pairs don't.
 
 func getCachedVersion(s string) (*semver.Version, bool) {
 	if v, ok := versionCache.Load(s); ok {

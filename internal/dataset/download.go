@@ -70,10 +70,10 @@ func (o *Options) applyDefaults() {
 	}
 }
 
-// parquetDir resolves where shards live. An explicit --parquet-dir wins;
+// parquetDir resolves where shards live. Explicit --parquet-dir wins;
 // otherwise shards are scoped by snapshot date so two exports never mix, falling
-// back to the unscoped directory when no date is known (which is how a
-// --build-only run finds shards downloaded by an older version).
+// back to the unscoped dir when no date is known (how --build-only finds shards
+// from an older version).
 func (o *Options) parquetDir() string {
 	if o.ParquetDir != "" {
 		return o.ParquetDir
@@ -89,8 +89,8 @@ func (o *Options) dbPath() string {
 }
 
 // Download exports the dependency graph for opts.System and builds a DuckDB
-// database from it. Every billed query and every mutation of cloud state is
-// confirmed interactively first, unless AutoApprove is set.
+// database. Every billed query and cloud mutation is confirmed first, unless
+// AutoApprove is set.
 func Download(ctx context.Context, opts Options) error {
 	opts.applyDefaults()
 
@@ -121,8 +121,8 @@ func Download(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	// The snapshot date belongs in the header, so it has to be known before the
-	// header is printed; discovery is therefore a preamble rather than a step.
+	// The snapshot date belongs in the header, so it must be known before the
+	// header prints; discovery is a preamble, not a step.
 	snapshotSource := "(given)"
 	if opts.SnapshotDate == "" {
 		date, err := discoverSnapshotDate(ctx, c, &opts, r)
@@ -173,9 +173,9 @@ func (o *Options) countSteps() int {
 	return steps
 }
 
-// preflight fails on missing local tooling before anything billable happens.
-// The bash version this replaces discovered a missing gcloud only after the
-// ~$8 query had already run.
+// preflight fails on missing local tooling before anything billable happens
+// — the bash version this replaced found a missing gcloud only after the ~$8
+// query had already run.
 func preflight(opts *Options) error {
 	var problems []string
 
@@ -213,11 +213,10 @@ func newRESTClient(ctx context.Context, opts *Options) (*client, error) {
 // publishes daily, so the answer is normally today or yesterday.
 const snapshotSearchDays = 14
 
-// discoverSnapshotDate finds the most recent published snapshot by dry-running
-// the export query one day at a time, newest first. A dry run is free and reports
-// zero bytes when no partition matches, so this costs nothing. Asking BigQuery
-// directly with MAX(SnapshotAt) reads the timestamp column across every recent
-// partition instead, which is a real scan of about a quarter of a TiB.
+// discoverSnapshotDate finds the latest snapshot by dry-running the export
+// query one day at a time, newest first. A dry run is free and reports zero
+// bytes when no partition matches. Asking BigQuery with MAX(SnapshotAt) instead
+// scans the timestamp column across every recent partition (~0.25 TiB).
 func discoverSnapshotDate(ctx context.Context, c *client, opts *Options, r *reporter) (string, error) {
 	r.section("Finding the latest deps.dev snapshot")
 
@@ -284,8 +283,8 @@ func resolveBucket(ctx context.Context, c *client, opts *Options, ask *confirmer
 	}
 }
 
-// ensurePrefixIsClear refuses to export on top of an earlier run's shards, which
-// the wildcard download would otherwise merge into one corrupt local dataset.
+// ensurePrefixIsClear refuses to export on top of an earlier run's shards —
+// the wildcard download would otherwise merge them into a corrupt dataset.
 func ensurePrefixIsClear(ctx context.Context, c *client, bucket, prefix string, opts *Options, ask *confirmer, r *reporter) error {
 	existing, err := c.listPrefix(ctx, bucket, prefix)
 	if err != nil {
@@ -320,10 +319,9 @@ func runExport(ctx context.Context, c *client, bucket, prefix string, opts *Opti
 		return err
 	}
 
-	// The publish-date export lets a bundled/nested dependency edge be judged
-	// against when its bundling package and the version it depends on were
-	// each released, instead of being excluded outright. See README "How
-	// bundled dependencies are handled".
+	// The publish-date export lets a bundled edge be judged against when its
+	// bundling package and the depended-on version were each released, instead
+	// of being excluded outright. See README "How bundled dependencies are handled".
 	if versionsPrefix := opts.System.VersionsParquetPrefix(); versionsPrefix != "" {
 		versionsSQL := versionExportSQL(opts.System.BigQuerySystem(), opts.SnapshotDate)
 		if err := exportOne(ctx, c, bucket, prefix, opts, ask, r, versionsPrefix, versionsSQL); err != nil {

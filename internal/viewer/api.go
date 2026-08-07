@@ -17,9 +17,8 @@ import (
 const (
 	defaultPageSize = 100
 	maxPageSize     = 500
-	// routePreviewLimit bounds how many routes a list row carries. The full
-	// set is always available from /api/package; this only keeps the list
-	// payload small for the rare package with hundreds of routes.
+	// routePreviewLimit bounds the routes a list row carries; the full set is
+	// always available from /api/package. Keeps the list payload small.
 	routePreviewLimit    = 5
 	defaultVersionsLimit = 100
 	maxVersionsLimit     = 1000
@@ -33,9 +32,9 @@ type targetResponse struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 	Ref     string `json:"ref"`
-	// Attribution counts, not exhaustive impact: traversal records one path
-	// per affected name@version, so a package reachable from several targets
-	// is only counted against the one that reached it first.
+	// Attribution counts, not exhaustive impact: traversal records one path per
+	// affected name@version, so a package reachable from several targets counts
+	// only against the one that reached it first.
 	AttributedPackages int `json:"attributed_packages"`
 	AttributedVersions int `json:"attributed_versions"`
 }
@@ -64,7 +63,7 @@ type routeResponse struct {
 	Target       string   `json:"target"`
 	VersionCount int      `json:"version_count"`
 
-	// Populated only by /api/package, and only for the requested route.
+	// Populated only by /api/package, for the requested route.
 	Versions       []versionResponse `json:"versions,omitempty"`
 	VersionsOffset int               `json:"versions_offset,omitempty"`
 	VersionsTotal  int               `json:"versions_total,omitempty"`
@@ -83,7 +82,7 @@ type stepResponse struct {
 
 type packageResponse struct {
 	Name string `json:"name"`
-	// Bounds of the recorded version set, not a continuous affected range.
+	// Bounds of the recorded version set, not a continuous range.
 	LatestRecordedVersion string          `json:"latest_recorded_version"`
 	OldestRecordedVersion string          `json:"oldest_recorded_version"`
 	VersionCount          int             `json:"version_count"`
@@ -94,9 +93,9 @@ type packageResponse struct {
 	RoutesTotal           int             `json:"routes_total"`
 	Routes                []routeResponse `json:"routes"`
 
-	// Populated only by /api/package: how many packages depend on the traced
-	// package and on each of its hops. The graph view expands nodes upward, and
-	// this saves it a request per node just to find out there is nothing there.
+	// Populated only by /api/package: dependents of the traced package and each
+	// hop. The graph view expands nodes upward; this saves it a request per node
+	// just to learn there's nothing there.
 	DependentCounts map[string]int `json:"dependent_counts,omitempty"`
 }
 
@@ -129,12 +128,9 @@ func (s *store) routeResponse(r *route) routeResponse {
 }
 
 // packageResponse projects a stored package for the list tier: no concrete
-// paths, and at most routePreviewLimit routes.
-//
-// A row whose name does not contain the search matched on one of its routes,
-// and the list only shows the first one. Leading with a route the query is
-// nowhere in makes a real hit read as a bug, so the matching route is promoted
-// to the front of the preview.
+// paths, at most routePreviewLimit routes. When the search matched a route
+// (not the name), the matching route is promoted to the front of the preview —
+// leading with a route the query isn't in would make a real hit read as a bug.
 func (s *store) packageResponse(p *packageEntry, search string) packageResponse {
 	promoted := make([]bool, len(p.Routes))
 	order := make([]int, 0, len(p.Routes))
@@ -171,9 +167,8 @@ func (s *store) packageResponse(p *packageEntry, search string) packageResponse 
 	}
 }
 
-// steps rebuilds one version's concrete path. path[0] is the affected package
-// itself, and every step's requirement is the range it declares for whatever
-// comes next, the target included.
+// steps rebuilds one version's concrete path. path[0] is the affected package;
+// each step's requirement is the range it declares for the next hop.
 func (s *store) steps(pkgName string, r *route, vp *versionPath) []stepResponse {
 	steps := make([]stepResponse, 0, len(vp.ReqIDs))
 	steps = append(steps, stepResponse{
@@ -210,15 +205,15 @@ type packageQuery struct {
 	minDepth int
 	maxDepth int
 	target   string
-	// scope is the npm scope the affected package itself publishes under, which
-	// is the downstream side: the target filter is the compromised one.
+	// scope is the npm scope of the affected package (downstream side); the
+	// target filter is the compromised one.
 	scope        string
 	minDownloads int64
 	sortBy       string
 	desc         bool
 
-	// Whether the caller picked the sort column, which decides if a search can
-	// reorder rows by relevance or has to leave the requested order alone.
+	// Whether the caller picked the sort column, deciding if a search may
+	// reorder by relevance or must leave the requested order.
 	sortPicked bool
 }
 
@@ -277,13 +272,10 @@ func (s *store) matches(p *packageEntry, pq packageQuery) bool {
 	return true
 }
 
-// hasTarget accepts a full "name@version" reference, or just the compromised
-// package's name, so the Overview can filter by target package without
-// enumerating its versions.
-//
-// It also accepts a bare "@scope", which the Overview's scope panel links to.
-// That is unambiguous: a scoped npm name always carries a slash, so an @-prefixed
-// value without one cannot be a package.
+// hasTarget accepts a full "name@version" ref, just the name, or a bare
+// "@scope" (the Overview's scope panel links to these). The scope form is
+// unambiguous: a scoped npm name always has a slash, so an @-prefixed value
+// without one can't be a package.
 func (s *store) hasTarget(p *packageEntry, want string) bool {
 	scope := strings.HasPrefix(want, "@") && !strings.Contains(want, "/")
 
@@ -299,8 +291,7 @@ func (s *store) hasTarget(p *packageEntry, want string) bool {
 	return false
 }
 
-// nameScope is the npm scope a package name belongs to, or "" when it has none.
-// It reads both sides: a compromised package's scope and an affected one's.
+// nameScope is the npm scope a package belongs to, or "" if none.
 func nameScope(name string) string {
 	if !strings.HasPrefix(name, "@") {
 		return ""
@@ -323,8 +314,8 @@ func (s *store) matchesSearch(p *packageEntry, search string) bool {
 	return false
 }
 
-// routeMatches reports whether the search hits the route's target or any of
-// the intermediate dependencies it passes through.
+// routeMatches reports whether the search hits the route's target or any
+// intermediate hop.
 func (s *store) routeMatches(r *route, search string) bool {
 	if containsLower(s.strings.str(r.TargetID), search) {
 		return true
@@ -337,9 +328,9 @@ func (s *store) routeMatches(r *route, search string) bool {
 	return false
 }
 
-// Relevance tiers for a search hit. A query is nearly always the name of a
-// package someone has in mind, and matching a route hop pulls in every package
-// that merely reaches through it, so a name match has to outrank one.
+// Relevance tiers. A query is usually a package name someone has in mind, and
+// a route-hop match pulls in everything that merely reaches through it, so a
+// name match must outrank one.
 const (
 	rankExactName = iota
 	rankNamePrefix
@@ -361,8 +352,8 @@ func (s *store) searchRank(p *packageEntry, search string) int {
 	return rankRoute
 }
 
-// selectPackages returns indices into s.packages rather than copies; a filter
-// that matches most of a 77k-package report should not duplicate it.
+// selectPackages returns indices into s.packages, not copies — a filter that
+// matches most of a 77k-package report shouldn't duplicate it.
 func (s *store) selectPackages(pq packageQuery) []int {
 	idx := make([]int, 0, len(s.packages))
 	for i := range s.packages {
@@ -371,25 +362,25 @@ func (s *store) selectPackages(pq packageQuery) []int {
 		}
 	}
 
-	// A report with no download data has no download column either, so the
-	// viewer's implicit sort is distance ascending. Mirror it or the header
-	// caret points at a column the rows are not actually ordered by.
+	// A report with no download data has no download column, so the implicit sort
+	// is distance ascending. Mirror it or the header caret points at a column
+	// the rows aren't ordered by.
 	if !pq.sortPicked && !s.enriched() {
 		pq.sortBy = "depth"
 		pq.desc = false
 	}
 
-	// A search only reorders rows while the caller is on the implicit sort;
-	// once a column is picked, that column is what the rows are ranked by.
+	// A search reorders by relevance only on the implicit sort; once a column is
+	// picked, that column ranks the rows.
 	byRelevance := pq.search != "" && !pq.sortPicked
 
-	// s.packages is already ordered by impact, so the default sort is free.
+	// s.packages is already impact-ordered, so the default sort is free.
 	if !byRelevance && pq.sortBy == "weekly_downloads" && pq.desc {
 		return idx
 	}
 
-	// Ranks are precomputed into a lookup keyed by package index: the
-	// comparator runs O(n log n) times and must not redo the string work.
+	// Precompute ranks keyed by package index: the comparator runs O(n log n)
+	// times and must not redo the string work.
 	var ranks []int8
 	if byRelevance {
 		ranks = make([]int8, len(s.packages))
@@ -421,8 +412,8 @@ func (s *store) lessBy(a, b *packageEntry, pq packageQuery) bool {
 	case "version":
 		cmp = blast.CompareVersions(a.LatestVersion, b.LatestVersion)
 	default: // weekly_downloads
-		// An unknown download count is not a small one, so unenriched
-		// packages sink to the bottom whichever way the column is sorted.
+		// An unknown download count isn't a small one, so unenriched packages
+		// sink to the bottom regardless of sort direction.
 		if a.enriched() != b.enriched() {
 			return a.enriched()
 		}
@@ -435,8 +426,8 @@ func (s *store) lessBy(a, b *packageEntry, pq packageQuery) bool {
 	if cmp != 0 {
 		return cmp < 0
 	}
-	// Name breaks ties and stays ascending in both directions, so reversing
-	// the sort does not scramble rows that are equal on the chosen column.
+	// Name breaks ties, ascending in both directions so reversing the sort
+	// doesn't scramble equal rows.
 	return s.strings.str(a.NameID) < s.strings.str(b.NameID)
 }
 
@@ -520,12 +511,10 @@ func (s *store) handlePackages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, packageListResponse{Total: total, Offset: offset, Results: results})
 }
 
-// handlePackage serves one package's complete route list, plus a page of
-// concrete versions for the requested route.
-//
-// The name arrives as a query parameter rather than a path segment because
-// scoped npm names contain a slash, and an encoded %2F does not survive
-// ServeMux's segment matching intact.
+// handlePackage serves one package's full route list, plus a page of concrete
+// versions for the requested route. The name comes as a query param, not a path
+// segment: scoped npm names contain a slash, and an encoded %2F doesn't survive
+// ServeMux's segment matching.
 func (s *store) handlePackage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	name := q.Get("name")
@@ -540,8 +529,7 @@ func (s *store) handlePackage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The detail tier replaces the preview with every route, so it has no
-	// search to order them by.
+	// The detail tier replaces the preview with every route, so no search orders them.
 	resp := s.packageResponse(p, "")
 	resp.Routes = make([]routeResponse, 0, len(p.Routes))
 	for i := range p.Routes {
@@ -549,8 +537,8 @@ func (s *store) handlePackage(w http.ResponseWriter, r *http.Request) {
 	}
 	resp.DependentCounts = s.dependentCounts(name, resp.Routes)
 
-	// Default to the first route so a caller that just wants "show me this
-	// package" gets a usable path without a second round trip.
+	// Default to the first route so a caller wanting just "show me this package"
+	// gets a usable path without a second round trip.
 	wanted := q.Get("route")
 	target := 0
 	if wanted != "" {
@@ -598,10 +586,9 @@ func (s *store) handlePackage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-// handleDownload streams the complete filtered set as CSV: one row per
-// (affected package, route), with every recorded version listed. Versions are
-// comma-joined so a downloaded file matches the shape ParseCompromisedCSV
-// reads, letting one run's export drive the next.
+// handleDownload streams the full filtered set as CSV: one row per (affected
+// package, route), versions comma-joined to match ParseCompromisedCSV's shape —
+// so one run's export can drive the next.
 func (s *store) handleDownload(w http.ResponseWriter, r *http.Request) {
 	idx := s.selectPackages(parsePackageQuery(r.URL.Query()))
 
@@ -632,7 +619,7 @@ func (s *store) handleDownload(w http.ResponseWriter, r *http.Request) {
 				versions = append(versions, route.Versions[k].Version)
 			}
 			target := s.strings.str(route.TargetID)
-			// The example is the path of the first recorded version, not one that
+			// The example path is from the first recorded version, not one that
 			// holds for every version in the row.
 			example := ""
 			if len(route.Versions) > 0 {

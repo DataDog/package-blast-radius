@@ -6,19 +6,17 @@ import (
 	"sort"
 )
 
-// paretoRowLimit bounds how many compromised packages the chart names. Whatever
-// is left is summed into one tail row, so the chart still adds up.
+// paretoRowLimit bounds how many compromised packages the chart names; the rest
+// sum into one tail row so the chart still adds up.
 const paretoRowLimit = 14
 
-// The Overview's Pareto chart answers one question: of the compromised packages
-// this report names, which ones account for the affected set?
-//
-// Traversal records one path per affected name@version, so every affected version
-// is attributed to exactly one compromised package. The version series therefore
-// partitions the report: bars do not overlap, and the rows plus the tail add up
-// to all of it. The package series is nearly a partition but not quite, because
-// one package can have versions attributed to different compromised packages, so
-// its running total is a union rather than a sum.
+// The Overview's Pareto chart: of the compromised packages this report names,
+// which account for the affected set? Traversal records one path per affected
+// name@version, so every affected version is attributed to exactly one
+// compromised package. The version series partitions the report (bars don't
+// overlap; rows + tail add up). The package series is nearly a partition but not
+// quite — one package can have versions attributed to different compromised
+// packages, so its running total is a union, not a sum.
 type paretoRow struct {
 	// Package is a "name@version" reference, the compromised version itself.
 	Package string `json:"package"`
@@ -30,9 +28,8 @@ type paretoRow struct {
 
 type paretoSeries struct {
 	Total int `json:"total"`
-	// DistinctSources counts the compromised packages that were attributed
-	// anything at all. A report can name thousands nothing depended on, and they
-	// belong in neither the rows nor the tail.
+	// DistinctSources counts compromised packages attributed anything. A report
+	// can name thousands nothing depended on — they're in neither rows nor tail.
 	DistinctSources int         `json:"distinct_sources"`
 	Rows            []paretoRow `json:"rows"`
 }
@@ -48,10 +45,9 @@ func (s *store) handlePareto(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.paretoStats())
 }
 
-// paretoStats walks every recorded route, so it is computed on first request and
-// kept rather than built during load. Startup already takes minutes on the larger
-// reports, and a session that never opens the Overview should not pay for a chart
-// it does not draw.
+// paretoStats walks every route, so it's computed on first request and kept
+// rather than built during load. Startup already takes minutes on large reports;
+// a session that never opens the Overview shouldn't pay for a chart it won't draw.
 func (s *store) paretoStats() paretoResponse {
 	s.paretoOnce.Do(func() { s.pareto = s.computePareto() })
 	return s.pareto
@@ -82,12 +78,10 @@ func (s *store) computePareto() paretoResponse {
 	}
 }
 
-// countByTarget credits every compromised package with what depends on it, and
-// counts the version total alongside.
-//
-// The total is counted here rather than read from meta.TotalAffected: entries the
-// loader skipped for having no path never became routes, and a denominator that
-// included them would make every bar under-read.
+// countByTarget credits each compromised package with what depends on it, and
+// counts the version total. The total is counted here, not read from
+// meta.TotalAffected: skipped pathless entries never became routes, and a
+// denominator including them would make every bar under-read.
 func (s *store) countByTarget() (versionsBy, packagesBy map[int32]int, totalVersions int) {
 	versionsBy = make(map[int32]int)
 	packagesBy = make(map[int32]int)
@@ -114,9 +108,9 @@ func (s *store) countByTarget() (versionsBy, packagesBy map[int32]int, totalVers
 	return versionsBy, packagesBy, totalVersions
 }
 
-// rankSources orders compromised packages by what they account for and keeps the
-// head. Ties break on the reference so two runs over one report produce the same
-// chart; map iteration order alone would not.
+// rankSources orders compromised packages by what they account for and keeps
+// the head. Ties break on the reference so two runs over one report produce the
+// same chart; map iteration order alone wouldn't.
 func (s *store) rankSources(counts map[int32]int) []sourceCount {
 	ranked := make([]sourceCount, 0, len(counts))
 	for id, c := range counts {
@@ -150,13 +144,11 @@ func (s *store) versionsCoveredAt(ranked []sourceCount) []int {
 }
 
 // packagesCoveredAt buckets affected packages by the best-ranked compromised
-// package they are attributed to.
-//
-// A package can be attributed to several, so the running total is a union rather
-// than a sum. A set per row would answer that at the cost of a bitset over every
-// package, and is not needed: rows are already ranked, so whatever a prefix
-// accounts for is accounted for by its best-ranked member. Recording each package
-// against that one rank turns the unions into a prefix sum.
+// package they're attributed to. A package can be attributed to several, so the
+// running total is a union, not a sum. A set per row would answer that at the
+// cost of a bitset over every package — unneeded: rows are ranked, so whatever a
+// prefix accounts for is accounted for by its best-ranked member. Recording each
+// package against that rank turns the unions into a prefix sum.
 func (s *store) packagesCoveredAt(ranked []sourceCount) []int {
 	rankOf := rankIndex(ranked)
 	covered := make([]int, len(ranked))

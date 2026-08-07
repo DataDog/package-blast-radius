@@ -12,21 +12,19 @@ const (
 	maxGraphPageSize     = 200
 )
 
-// graphNode is one package in the expansion graph.
-//
-// Identity is a package *name*. A compromised package's versions are an
-// attribute of its node rather than nodes of their own, so `axios@1.14.1` and
-// `axios@1.14.2` expand into one subtree instead of two overlapping ones.
+// graphNode is one package in the expansion graph. Identity is a package
+// *name*; a compromised package's versions are an attribute of its node, so
+// `axios@1.14.1` and `axios@1.14.2` expand into one subtree, not two.
 type graphNode struct {
 	Name            string `json:"name"`
 	WeeklyDownloads *int64 `json:"weekly_downloads"` // null when unenriched
 
-	// How many packages depend on this one, so a node can say whether
-	// expanding it will yield anything before anyone clicks it.
+	// How many packages depend on this one, so a node can tell whether expanding
+	// it yields anything before anyone clicks it.
 	DependentCount int `json:"dependent_count"`
 
 	// Recorded affected versions. Zero for a node that only ever appears as an
-	// intermediate hop, which the traversal never attributed on its own.
+	// intermediate hop the traversal never attributed.
 	VersionCount int  `json:"version_count"`
 	MinDepth     int  `json:"min_depth"`
 	Affected     bool `json:"affected"`
@@ -57,8 +55,8 @@ func (s *store) graphNode(name string) graphNode {
 }
 
 // dependentCounts reports how many packages depend on the named package and on
-// every hop of the given routes. A name the graph never recorded counts zero:
-// it is a leaf, not a missing entry.
+// every hop of the given routes. A name the graph never recorded counts zero —
+// a leaf, not a missing entry.
 func (s *store) dependentCounts(name string, routes []routeResponse) map[string]int {
 	counts := make(map[string]int, len(routes)+1)
 	add := func(n string) {
@@ -82,9 +80,9 @@ func (s *store) dependentCounts(name string, routes []routeResponse) map[string]
 	return counts
 }
 
-// graphRoots collapses the target list to one node per compromised package
-// name. The ranked list is already ordered by attributed packages, so
-// first-seen order is the ranking.
+// graphRoots collapses the target list to one node per compromised package name.
+// The ranked list is already ordered by attributed packages, so first-seen
+// order is the ranking.
 func (s *store) graphRoots(search string) []graphNode {
 	ranked := s.rankedTargets()
 	roots := make([]graphNode, 0, len(ranked))
@@ -119,8 +117,7 @@ func (s *store) handleGraphRoots(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGraphDependents expands one node into the packages that depend on it.
-// An unknown name is an empty expansion rather than a 404: a leaf package is a
-// legitimate node with nothing above it.
+// An unknown name is an empty expansion, not a 404 — a leaf is a legitimate node.
 func (s *store) handleGraphDependents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	name := q.Get("package")
@@ -136,8 +133,8 @@ func (s *store) handleGraphDependents(w http.ResponseWriter, r *http.Request) {
 		list = s.dependents[id]
 	}
 
-	// Already ordered by impact at build time, so the page is a slice of the
-	// filtered names rather than a re-sort.
+	// Already impact-ordered at build time, so the page is a slice of the filtered
+	// names, not a re-sort.
 	nodes := make([]graphNode, 0, len(list))
 	for _, id := range list {
 		child := s.strings.str(id)

@@ -52,8 +52,8 @@ func enrichNPMDownloads(ctx context.Context, affected []AffectedPackage, workers
 }
 
 // fetchNPMDownloads resolves weekly download counts for names, invoking apply
-// for every name the registry has data on. Enrichment is best effort, so failed
-// requests are tallied and reported rather than aborting the run.
+// for each name the registry has data on. Best effort: failed requests are
+// tallied and reported, not aborted.
 func fetchNPMDownloads(ctx context.Context, names []string, workers int, apply func(string, int64)) error {
 	batches := npmBatches(names)
 	if len(batches) == 0 {
@@ -88,9 +88,9 @@ func fetchNPMDownloads(ctx context.Context, names []string, workers int, apply f
 	return nil
 }
 
-// npmBatches groups names into requests the bulk endpoint will accept: it
-// rejects scoped names, so those go one per request, and it caps every request
-// at npmBulkMaxPackages names.
+// npmBatches groups names into requests the bulk endpoint accepts: scoped
+// names go one per request (the bulk endpoint rejects them), the rest capped
+// at npmBulkMaxPackages.
 func npmBatches(names []string) [][]string {
 	var batches [][]string
 	var unscoped []string
@@ -114,9 +114,8 @@ type npmDownloadPoint struct {
 	Downloads int64 `json:"downloads"`
 }
 
-// fetchNPMBatch requests one batch. The endpoint answers a multi-name request
-// with a name-keyed map but a single-name request with a bare download point,
-// so the two shapes have to be decoded separately.
+// fetchNPMBatch requests one batch. Multi-name answers come as a name-keyed
+// map, single-name as a bare point, so the two shapes decode separately.
 func fetchNPMBatch(ctx context.Context, client *http.Client, batch []string, apply func(string, int64)) error {
 	if len(batch) == 1 {
 		name := batch[0]

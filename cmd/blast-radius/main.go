@@ -8,8 +8,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// errQuiet exits non-zero without printing anything more, for commands that have
-// already explained themselves (a declined confirmation prompt).
+// errQuiet exits non-zero without printing more, for commands that already
+// explained themselves (a declined confirmation).
 var errQuiet = errors.New("")
 
 func main() {
