@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/rodaine/table"
 )
@@ -110,29 +112,43 @@ func renderTable(result *BlastResult, deduped []AffectedPackage, top int, w io.W
 	}
 
 	multiTarget := len(result.Targets) > 1
-	headers := []any{"PACKAGE", "VERSION", "DEPTH", "DOWNLOADS/wk"}
+	headers := []string{"PACKAGE", "VERSION", "DEPTH", "DOWNLOADS/wk"}
 	if multiTarget {
 		headers = append(headers, "TARGET")
 	}
-	headers = append(headers, "PATH")
 
-	tbl := table.New(headers...)
-	tbl.WithWriter(w)
-
-	for _, a := range display {
+	rows := make([][]string, len(display))
+	for i, a := range display {
 		downloads := "-"
 		if a.WeeklyDownloads >= 0 {
 			downloads = FormatNumber(a.WeeklyDownloads)
 		}
-		row := []any{a.Name, a.Version, a.Depth, downloads}
+		rows[i] = []string{a.Name, a.Version, strconv.Itoa(a.Depth), downloads}
 		if multiTarget {
-			row = append(row, a.Target.String())
+			rows[i] = append(rows[i], a.Target.String())
 		}
-		row = append(row, formatPath(a.Path, a.Target))
-		tbl.AddRow(row...)
 	}
 
+	pathBudget, showPath := pathColumnBudget(displayWidth(w), headers, rows)
+	if showPath {
+		headers = append(headers, "PATH")
+		for i, a := range display {
+			rows[i] = append(rows[i], elidePath(a.Path, a.Target, pathBudget))
+		}
+	}
+
+	headerCells := make([]any, len(headers))
+	for i, h := range headers {
+		headerCells[i] = h
+	}
+	tbl := table.New(headerCells...)
+	tbl.WithWriter(w)
+	tbl.SetRows(rows)
 	tbl.Print()
+
+	if !showPath {
+		fmt.Fprintln(w, "\nDependency paths omitted: the terminal is too narrow. Widen it, or read paths.csv / --output csv.")
+	}
 
 	if top > 0 && len(deduped) > top {
 		fmt.Fprintf(w, "\n... and %s more unique packages (use --top 0 for all, or --output csv)\n",
@@ -140,6 +156,68 @@ func renderTable(result *BlastResult, deduped []AffectedPackage, top int, w io.W
 	}
 
 	return nil
+}
+
+// minPathWidth is the narrowest PATH column still worth printing: enough for an
+// elided package name plus the target it reaches.
+const minPathWidth = 24
+
+// pathColumnBudget returns how many columns the PATH cells may use. A budget of
+// 0 with show=true means the width is unbounded; show=false means the fixed
+// columns already fill the terminal and PATH should be dropped entirely.
+func pathColumnBudget(termWidth int, headers []string, rows [][]string) (int, bool) {
+	if termWidth <= 0 {
+		return 0, true
+	}
+
+	used := 0
+	for i, h := range headers {
+		cellWidth := utf8.RuneCountInString(h)
+		for _, row := range rows {
+			if n := utf8.RuneCountInString(row[i]); n > cellWidth {
+				cellWidth = n
+			}
+		}
+		used += cellWidth + table.DefaultPadding
+	}
+
+	// The table pads every column, including the last, so the PATH cell has to
+	// fit inside the terminal with that trailing padding still on the line.
+	budget := termWidth - used - table.DefaultPadding - 1
+	if budget < minPathWidth {
+		return 0, false
+	}
+	return budget, true
+}
+
+// elidePath renders a dependency path within budget columns by dropping leading
+// hops, keeping the ones nearest the target. The first hop is the row's own
+// package, which the PACKAGE and VERSION columns already show, so the hops worth
+// the space are at the other end.
+func elidePath(path []PathStep, target PackageVersion, budget int) string {
+	full := formatPath(path, target)
+	if budget <= 0 || utf8.RuneCountInString(full) <= budget {
+		return full
+	}
+
+	for dropped := 1; dropped <= len(path); dropped++ {
+		candidate := fmt.Sprintf("…(%d more)──▶ %s", dropped, formatPath(path[dropped:], target))
+		if utf8.RuneCountInString(candidate) <= budget {
+			return candidate
+		}
+	}
+	return truncateRunes(target.String(), budget)
+}
+
+func truncateRunes(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return string(runes[:limit-1]) + "…"
 }
 
 // The JSON* types below are the on-disk contract for `--output json`. The

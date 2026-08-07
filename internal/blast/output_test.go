@@ -5,9 +5,11 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func sampleResult() *BlastResult {
@@ -250,6 +252,115 @@ func TestRenderTableSortsByImpact(t *testing.T) {
 	}
 	if strings.Index(out, "tremendous") > strings.Index(out, "deep-dep") {
 		t.Errorf("expected the 24,400-download package to sort above the unenriched one:\n%s", out)
+	}
+}
+
+func wideResult() *BlastResult {
+	keyv := PackageVersion{System: NPM, Name: "keyv", Version: "6.0.0"}
+	return &BlastResult{
+		Targets:    []PackageVersion{keyv},
+		TotalEdges: 2915977,
+		Affected: []AffectedPackage{
+			{
+				PackageVersion: PackageVersion{System: NPM, Name: "@alithya-oss/backstage-plugin-time-saver-backend", Version: "3.0.7"},
+				Depth:          3,
+				Path: []PathStep{
+					{Package: "@alithya-oss/backstage-plugin-time-saver-backend", Version: "3.0.7", Requirement: "^0.10.0"},
+					{Package: "@backstage/backend-defaults", Version: "0.10.0", Requirement: "^4.0.1"},
+					{Package: "@keyv/redis", Version: "4.0.2", Requirement: "*"},
+				},
+				Target:          keyv,
+				WeeklyDownloads: -1,
+			},
+		},
+		UniquePackages: 1,
+		MaxDepth:       3,
+		Elapsed:        time.Second,
+	}
+}
+
+func longestLine(s string) int {
+	longest := 0
+	for _, line := range strings.Split(s, "\n") {
+		if n := utf8.RuneCountInString(line); n > longest {
+			longest = n
+		}
+	}
+	return longest
+}
+
+// A long dependency path must not wrap the table rows, whatever the width.
+func TestRenderTableFitsTerminalWidth(t *testing.T) {
+	for _, width := range []int{100, 120, 160} {
+		t.Setenv("COLUMNS", strconv.Itoa(width))
+
+		var buf bytes.Buffer
+		if err := RenderResults(wideResult(), "table", 0, &buf); err != nil {
+			t.Fatalf("RenderResults: %v", err)
+		}
+
+		out := buf.String()
+		if got := longestLine(out); got > width {
+			t.Errorf("COLUMNS=%d produced a %d-column line:\n%s", width, got, out)
+		}
+		if !strings.Contains(out, "keyv@6.0.0") {
+			t.Errorf("COLUMNS=%d dropped the target from the path:\n%s", width, out)
+		}
+	}
+}
+
+// Below the point where an elided path still says anything, the column goes away
+// instead of wrapping every row.
+func TestRenderTableDropsPathWhenTooNarrow(t *testing.T) {
+	t.Setenv("COLUMNS", "70")
+
+	var buf bytes.Buffer
+	if err := RenderResults(wideResult(), "table", 0, &buf); err != nil {
+		t.Fatalf("RenderResults: %v", err)
+	}
+
+	out := buf.String()
+	if strings.Contains(out, "PATH") {
+		t.Errorf("expected the PATH column to be dropped:\n%s", out)
+	}
+	if !strings.Contains(out, "Dependency paths omitted") {
+		t.Errorf("expected a pointer to the full paths:\n%s", out)
+	}
+}
+
+// Without a known terminal width (piped output, a file), paths stay intact.
+func TestRenderTableKeepsFullPathWhenWidthUnknown(t *testing.T) {
+	var buf bytes.Buffer
+	if err := RenderResults(wideResult(), "table", 0, &buf); err != nil {
+		t.Fatalf("RenderResults: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "@backstage/backend-defaults@0.10.0") {
+		t.Errorf("intermediate hops were elided without a width limit:\n%s", buf.String())
+	}
+}
+
+func TestElidePath(t *testing.T) {
+	target := PackageVersion{System: NPM, Name: "keyv", Version: "6.0.0"}
+	path := []PathStep{
+		{Package: "@alithya-oss/backstage-plugin-time-saver-backend", Version: "3.0.7", Requirement: "^0.10.0"},
+		{Package: "@backstage/backend-defaults", Version: "0.10.0", Requirement: "^4.0.1"},
+		{Package: "@keyv/redis", Version: "4.0.2", Requirement: "*"},
+	}
+
+	for _, budget := range []int{24, 40, 60, 80} {
+		got := elidePath(path, target, budget)
+		if n := utf8.RuneCountInString(got); n > budget {
+			t.Errorf("budget %d: got %d columns: %q", budget, n, got)
+		}
+		if !strings.Contains(got, "keyv@6.0.0") {
+			t.Errorf("budget %d: target missing from %q", budget, got)
+		}
+	}
+
+	full := formatPath(path, target)
+	if got := elidePath(path, target, utf8.RuneCountInString(full)); got != full {
+		t.Errorf("a path that fits must be left alone:\n got %q\nwant %q", got, full)
 	}
 }
 
