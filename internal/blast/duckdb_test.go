@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"testing"
 	"time"
 
@@ -117,6 +118,34 @@ func TestQueryDependentsOfNames(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Errorf("got %d rows, want 2: %+v", len(got), got)
+	}
+}
+
+// TestQueryDependentsOfNamesLargeFrontier exercises the batched INSERT path:
+// a frontier larger than insertBatchSize must load in multiple chunks without
+// dropping or duplicating names.
+func TestQueryDependentsOfNamesLargeFrontier(t *testing.T) {
+	source := newFixtureDB(t)
+
+	// Build a name set well past insertBatchSize; only 'axios' and 'lodash' have
+	// edges in the fixture, the rest are no-ops, but all must load without error.
+	names := make([]string, insertBatchSize*2+7)
+	for i := range names {
+		names[i] = "no-such-pkg-" + strconv.Itoa(i)
+	}
+	names[0] = "axios"
+	names[insertBatchSize+1] = "lodash"
+
+	var got []RawDependent
+	err := source.QueryDependentsOfNames(names, func(d RawDependent) error {
+		got = append(got, d)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("QueryDependentsOfNames: %v", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("got %d rows, want 3 (axios x2 + lodash x1): %+v", len(got), got)
 	}
 }
 
