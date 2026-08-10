@@ -192,14 +192,14 @@ func comparePrereleaseFast(v, o string) int {
 		l = len(oparts)
 	}
 	for i := 0; i < l; i++ {
-		s, o := "", ""
+		sp, op := "", ""
 		if i < len(sparts) {
-			s = sparts[i]
+			sp = sparts[i]
 		}
 		if i < len(oparts) {
-			o = oparts[i]
+			op = oparts[i]
 		}
-		if d := comparePrePartFast(s, o); d != 0 {
+		if d := comparePrePartFast(sp, op); d != 0 {
 			return d
 		}
 	}
