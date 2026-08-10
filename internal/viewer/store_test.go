@@ -205,6 +205,38 @@ func TestStoreBuildsReverseAdjacency(t *testing.T) {
 	}
 }
 
+// TestRankedTargetsFoldsInUnattributed ensures rankedTargets includes targets
+// the report header declares but nothing depended on (ghost), and that
+// targetByRef resolves both attributed and unattributed refs.
+func TestRankedTargetsFoldsInUnattributed(t *testing.T) {
+	s := loadFixture(t)
+
+	ranked := s.rankedTargets()
+	have := make(map[string]targetSummary, len(ranked))
+	for _, r := range ranked {
+		have[r.Ref] = r
+	}
+
+	// ghost was compromised but nothing depended on it, so it's absent from
+	// s.targets and must be folded back in from the header with zero attribution.
+	ghost, ok := have["ghost@0.1.0"]
+	if !ok {
+		t.Fatalf("ghost@0.1.0 missing from ranked targets: %v", have)
+	}
+	if ghost.AttributedPackages != 0 || ghost.AttributedVersions != 0 {
+		t.Errorf("ghost attributed %d/%d, want 0/0", ghost.AttributedPackages, ghost.AttributedVersions)
+	}
+
+	// targetByRef must resolve an attributed target.
+	if got := s.targetByRef("axios@1.14.1"); got == nil || got.Name != "axios" {
+		t.Errorf("targetByRef(axios@1.14.1) = %v, want axios", got)
+	}
+	// And return nil for an unknown ref.
+	if got := s.targetByRef("nope@9.9.9"); got != nil {
+		t.Errorf("targetByRef(nope@9.9.9) = %v, want nil", got)
+	}
+}
+
 // Route IDs end up in bookmarks once view state is URL-synced, so two loads of
 // the same report must produce the same ones.
 func TestRouteIDsAreStableAcrossLoads(t *testing.T) {

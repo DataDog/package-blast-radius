@@ -478,12 +478,13 @@ func (s *store) handleSummary(sourcePath string) http.HandlerFunc {
 }
 
 func (s *store) targetByRef(ref string) *targetSummary {
-	for i := range s.targets {
-		if s.targets[i].Ref == ref {
-			return &s.targets[i]
+	s.targetByRefOnce.Do(func() {
+		s.targetByRefMap = make(map[string]*targetSummary, len(s.targets))
+		for i := range s.targets {
+			s.targetByRefMap[s.targets[i].Ref] = &s.targets[i]
 		}
-	}
-	return nil
+	})
+	return s.targetByRefMap[ref]
 }
 
 func (s *store) handlePackages(w http.ResponseWriter, r *http.Request) {

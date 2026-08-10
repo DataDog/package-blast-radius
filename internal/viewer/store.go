@@ -98,6 +98,12 @@ type store struct {
 	pareto     paretoResponse
 	scopesOnce sync.Once
 	scopes     scopesResponse
+
+	// targetByRefMap is built lazily so targetByRef is O(1) rather than a
+	// linear scan of s.targets on every call (rankedTargets loops over every
+	// meta target and calls targetByRef once per target).
+	targetByRefOnce sync.Once
+	targetByRefMap  map[string]*targetSummary
 }
 
 func (s *store) enriched() bool { return s.combinedDownloads != notEnriched }
