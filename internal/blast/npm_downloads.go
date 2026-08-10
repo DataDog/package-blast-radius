@@ -255,6 +255,9 @@ func fetchNPMDownloads(ctx context.Context, names []string, opts EnrichOptions, 
 			defer wg.Done()
 			for b := range work {
 				if err := fetchNPMBatch(ctx, client, b, resolve, pacer); err != nil {
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						return
+					}
 					failed.Add(1)
 				}
 			}
@@ -290,6 +293,9 @@ func fetchNPMDownloads(ctx context.Context, names []string, opts EnrichOptions, 
 	wg.Wait()
 	close(stopProg)
 	progWG.Wait()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if n := failed.Load(); n > 0 {
 		return fmt.Errorf("%d of %d npm download requests failed", n, len(batches))
@@ -401,6 +407,9 @@ func fetchJSON(ctx context.Context, client *http.Client, url string, dst any, pa
 				return err
 			}
 			if !sleepBackoff(ctx, attempt) {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ctxErr
+				}
 				return err
 			}
 			continue
@@ -446,7 +455,7 @@ func fetchJSON(ctx context.Context, client *http.Client, url string, dst any, pa
 			}
 			select {
 			case <-ctx.Done():
-				return lastErr
+				return ctx.Err()
 			case <-time.After(wait):
 			}
 		case resp.StatusCode >= 500:
@@ -456,6 +465,9 @@ func fetchJSON(ctx context.Context, client *http.Client, url string, dst any, pa
 				return lastErr
 			}
 			if !sleepBackoff(ctx, attempt) {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ctxErr
+				}
 				return lastErr
 			}
 		default:

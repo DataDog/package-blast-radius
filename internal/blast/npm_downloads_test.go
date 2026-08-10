@@ -3,6 +3,7 @@ package blast
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -252,6 +253,19 @@ func TestFetchNPMDownloadsReportsFailures(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "2 of 2") {
 		t.Errorf("error = %q, want it to report 2 of 2 failed", err)
+	}
+}
+
+func TestFetchNPMDownloadsReturnsCanceledDuringRetryWait(t *testing.T) {
+	stub := &npmStub{status: http.StatusTooManyRequests}
+	stub.start(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	err := fetchNPMDownloads(ctx, []string{"a"}, EnrichOptions{Workers: 1}, func(string, int64) {})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
 	}
 }
 

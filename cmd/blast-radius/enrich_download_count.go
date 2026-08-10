@@ -225,7 +225,11 @@ Examples:
 			cacheWriter := newDownloadCountCacheWriter(cacheFile)
 			var fetchedHandled atomic.Int64
 
-			ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			baseCtx := cmd.Context()
+			if baseCtx == nil {
+				baseCtx = context.Background()
+			}
+			ctx, stopSignals := signal.NotifyContext(baseCtx, os.Interrupt, syscall.SIGTERM)
 			defer stopSignals()
 			interrupted := false
 			if err := blast.Enrich(ctx, blast.NPM, toFetch, blast.EnrichOptions{
