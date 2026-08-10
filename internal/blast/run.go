@@ -236,6 +236,13 @@ type matchKey struct {
 	requirement string
 }
 
+// nameVersion is a comparable key for the visited/bundledSeen maps, avoiding
+// the string allocation of name + "@" + version on every edge.
+type nameVersion struct {
+	name    string
+	version string
+}
+
 // noMatchingParent marks a matchKey no frontier version satisfies, so
 // negatives cache as cheaply as positives.
 const noMatchingParent = -1
@@ -247,7 +254,7 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 
 	totalEdges := 0
 	var allAffected []AffectedPackage
-	visited := make(map[string]bool)
+	visited := make(map[nameVersion]bool)
 
 	type frontierEntry struct {
 		pkg    PackageVersion
@@ -258,7 +265,7 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 	var frontier []frontierEntry
 	for _, pv := range expanded {
 		frontier = append(frontier, frontierEntry{pkg: pv, path: nil, target: pv})
-		visited[pv.String()] = true
+		visited[nameVersion{pv.Name, pv.Version}] = true
 	}
 
 	for d := 0; d < maxDepth && len(frontier) > 0; d++ {
@@ -295,7 +302,7 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 			matchedParent frontierEntry
 		}
 		var bundledCandidates []bundledCandidate
-		bundledSeen := make(map[string]bool)
+		bundledSeen := make(map[nameVersion]bool)
 
 		// Filter edges as they arrive rather than collecting: a popular package has
 		// millions of direct dependents, and a whole depth's worth is gigabytes.
@@ -322,18 +329,18 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 
 			if rootName, rootVersion, ok := parseBundledName(dep.DependentName); ok {
 				root := PackageVersion{System: system, Name: rootName, Version: rootVersion}
-				key := root.String()
-				if visited[key] || bundledSeen[key] {
+				nvKey := nameVersion{rootName, rootVersion}
+				if visited[nvKey] || bundledSeen[nvKey] {
 					return nil
 				}
-				bundledSeen[key] = true
+				bundledSeen[nvKey] = true
 				bundledCandidates = append(bundledCandidates, bundledCandidate{
 					root: root, matchedParent: *matchedParent,
 				})
 				return nil
 			}
 
-			key := dep.DependentName + "@" + dep.DependentVersion
+			key := nameVersion{dep.DependentName, dep.DependentVersion}
 			if visited[key] {
 				return nil
 			}
@@ -398,17 +405,17 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 				return nil, fmt.Errorf("looking up publish dates at depth %d: %w", d+1, err)
 			}
 			for _, c := range bundledCandidates {
-				key := c.root.String()
-				if visited[key] {
+				nvKey := nameVersion{c.root.Name, c.root.Version}
+				if visited[nvKey] {
 					continue
 				}
-				rootDate, rootOK := dates[key]
+				rootDate, rootOK := dates[c.root.String()]
 				targetDate, targetOK := dates[c.matchedParent.target.String()]
 				if rootOK && targetOK && rootDate.Before(targetDate) {
 					continue // the target version did not exist yet when the bundle was frozen
 				}
 
-				visited[key] = true
+				visited[nvKey] = true
 				path := make([]PathStep, 0, len(c.matchedParent.path)+1)
 				path = append(path, PathStep{
 					Package:     c.root.Name,
