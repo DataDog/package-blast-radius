@@ -188,6 +188,9 @@ func TestFormatNumber(t *testing.T) {
 		24400:      "24,400",
 		1271328:    "1,271,328",
 		1000000000: "1,000,000,000",
+		-1:         "-1",
+		-1000:      "-1,000",
+		-1271328:   "-1,271,328",
 	}
 	for in, want := range tests {
 		if got := FormatNumber(in); got != want {

@@ -1,6 +1,7 @@
 package viewer
 
 import (
+	"cmp"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -399,46 +400,36 @@ func (s *store) selectPackages(pq packageQuery) []int {
 }
 
 func (s *store) lessBy(a, b *packageEntry, pq packageQuery) bool {
-	cmp := 0
+	result := 0
 	switch pq.sortBy {
 	case "name":
-		cmp = strings.Compare(s.strings.str(a.NameID), s.strings.str(b.NameID))
+		result = strings.Compare(s.strings.str(a.NameID), s.strings.str(b.NameID))
 	case "depth":
-		cmp = a.MinDepth - b.MinDepth
+		result = a.MinDepth - b.MinDepth
 	case "version_count":
-		cmp = a.VersionCount - b.VersionCount
+		result = a.VersionCount - b.VersionCount
 	case "routes":
-		cmp = len(a.Routes) - len(b.Routes)
+		result = len(a.Routes) - len(b.Routes)
 	case "version":
-		cmp = blast.CompareVersions(a.LatestVersion, b.LatestVersion)
+		result = blast.CompareVersions(a.LatestVersion, b.LatestVersion)
 	default: // weekly_downloads
 		// An unknown download count isn't a small one, so unenriched packages
 		// sink to the bottom regardless of sort direction.
 		if a.enriched() != b.enriched() {
 			return a.enriched()
 		}
-		cmp = cmpInt64(a.WeeklyDownloads, b.WeeklyDownloads)
+		result = cmp.Compare(a.WeeklyDownloads, b.WeeklyDownloads)
 	}
 
 	if pq.desc {
-		cmp = -cmp
+		result = -result
 	}
-	if cmp != 0 {
-		return cmp < 0
+	if result != 0 {
+		return result < 0
 	}
 	// Name breaks ties, ascending in both directions so reversing the sort
 	// doesn't scramble equal rows.
 	return s.strings.str(a.NameID) < s.strings.str(b.NameID)
-}
-
-func cmpInt64(a, b int64) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
 }
 
 // ---------------------------------------------------------------------------
@@ -478,12 +469,13 @@ func (s *store) handleSummary(sourcePath string) http.HandlerFunc {
 }
 
 func (s *store) targetByRef(ref string) *targetSummary {
-	for i := range s.targets {
-		if s.targets[i].Ref == ref {
-			return &s.targets[i]
+	s.targetByRefOnce.Do(func() {
+		s.targetByRefMap = make(map[string]*targetSummary, len(s.targets))
+		for i := range s.targets {
+			s.targetByRefMap[s.targets[i].Ref] = &s.targets[i]
 		}
-	}
-	return nil
+	})
+	return s.targetByRefMap[ref]
 }
 
 func (s *store) handlePackages(w http.ResponseWriter, r *http.Request) {

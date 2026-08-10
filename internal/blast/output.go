@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/rodaine/table"
@@ -99,7 +100,7 @@ func renderTable(result *BlastResult, deduped []AffectedPackage, top int, w io.W
 	fmt.Fprintf(w, "Affected: %s versions (%s unique packages)\n",
 		FormatNumber(int64(len(result.Affected))),
 		FormatNumber(int64(result.UniquePackages)))
-	fmt.Fprintf(w, "Max depth: %d | Took %s\n\n", result.MaxDepth, result.Elapsed.Round(100*millisecond))
+	fmt.Fprintf(w, "Max depth: %d | Took %s\n\n", result.MaxDepth, result.Elapsed.Round(100*time.Millisecond))
 
 	if len(deduped) == 0 {
 		fmt.Fprintln(w, "No affected packages found.")
@@ -273,7 +274,7 @@ func renderJSON(result *BlastResult, w io.Writer) error {
 		TotalAffected:  len(result.Affected),
 		UniquePackages: result.UniquePackages,
 		MaxDepth:       result.MaxDepth,
-		Elapsed:        result.Elapsed.Round(millisecond).String(),
+		Elapsed:        result.Elapsed.Round(time.Millisecond).String(),
 		Affected:       make([]JSONAffected, len(result.Affected)),
 	}
 	for i, a := range result.Affected {
@@ -368,21 +369,29 @@ func compareVersionStrings(a, b string) int {
 	return strings.Compare(a, b)
 }
 
-const millisecond = 1000000
-
 // FormatNumber groups digits with commas. Row and edge counts here run into the
 // hundreds of millions, which are unreadable otherwise.
 func FormatNumber(n int64) string {
-	if n < 1000 {
-		return fmt.Sprintf("%d", n)
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
 	}
-	s := fmt.Sprintf("%d", n)
-	var out []byte
-	for i, c := range s {
-		if i > 0 && (len(s)-i)%3 == 0 {
-			out = append(out, ',')
-		}
-		out = append(out, byte(c))
+
+	// Preserve a leading '-' so negative counts format correctly too.
+	sign := ""
+	if s[0] == '-' {
+		sign, s = "-", s[1:]
 	}
-	return string(out)
+
+	first := len(s) % 3
+	if first == 0 {
+		first = 3
+	}
+	out := make([]byte, 0, len(s)+len(s)/3)
+	out = append(out, s[:first]...)
+	for i := first; i < len(s); i += 3 {
+		out = append(out, ',')
+		out = append(out, s[i:i+3]...)
+	}
+	return sign + string(out)
 }

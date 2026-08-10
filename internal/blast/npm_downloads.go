@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,6 +39,10 @@ func enrichNPMDownloads(ctx context.Context, affected []AffectedPackage, workers
 	for name := range indexByName {
 		names = append(names, name)
 	}
+	// Sort so the batch order is deterministic across runs; the result is the
+	// same either way (merged under a mutex), but a stable order makes test
+	// assertions and debugging reproducible.
+	sort.Strings(names)
 
 	var mu sync.Mutex
 	apply := func(name string, count int64) {

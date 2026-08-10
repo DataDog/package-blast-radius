@@ -183,6 +183,12 @@ func preflight(opts *Options) error {
 		problems = append(problems, "no GCP project given (pass --project)")
 	}
 
+	if opts.SnapshotDate != "" {
+		if _, err := time.Parse("2006-01-02", opts.SnapshotDate); err != nil {
+			problems = append(problems, fmt.Sprintf("invalid --snapshot-date %q: expected YYYY-MM-DD", opts.SnapshotDate))
+		}
+	}
+
 	if len(problems) > 0 {
 		return fmt.Errorf("cannot start:\n  - %s", strings.Join(problems, "\n  - "))
 	}

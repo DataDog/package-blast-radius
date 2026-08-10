@@ -154,20 +154,29 @@ func scanDependentRows(rows *sql.Rows, yield func(RawDependent) error) error {
 	return rows.Err()
 }
 
+// insertBatchSize is how many rows one INSERT carries. The appender API is
+// the usual fast path but refuses read-only connections even for session-local
+// temp tables, so multi-row INSERTs are used instead. Batching keeps a
+// multi-thousand-row frontier to a handful of round-trips rather than one per
+// row.
+const insertBatchSize = 500
+
 // appendStrings bulk-loads one VARCHAR column into a caller-created temp table
-// (name we control, never user input, interpolated into the INSERT). The
-// appender API is the usual fast path but refuses read-only connections even
-// for session-local temp tables, so a prepared multi-row INSERT is used.
+// (name we control, never user input, interpolated into the INSERT).
 func (s *DuckDBSource) appendStrings(table string, values []string) error {
 	ctx := context.Background()
-	stmt, err := s.conn.PrepareContext(ctx, fmt.Sprintf(`INSERT INTO %s VALUES (?)`, table))
-	if err != nil {
-		return fmt.Errorf("preparing insert: %w", err)
-	}
-	defer stmt.Close()
-	for _, v := range values {
-		if _, err := stmt.ExecContext(ctx, v); err != nil {
-			return fmt.Errorf("inserting row: %w", err)
+	for start := 0; start < len(values); start += insertBatchSize {
+		end := min(start+insertBatchSize, len(values))
+		batch := values[start:end]
+		placeholders := make([]string, len(batch))
+		args := make([]any, len(batch))
+		for i, v := range batch {
+			placeholders[i] = "(?)"
+			args[i] = v
+		}
+		q := fmt.Sprintf(`INSERT INTO %s VALUES %s`, table, strings.Join(placeholders, ","))
+		if _, err := s.conn.ExecContext(ctx, q, args...); err != nil {
+			return fmt.Errorf("inserting rows: %w", err)
 		}
 	}
 	return nil
@@ -175,14 +184,18 @@ func (s *DuckDBSource) appendStrings(table string, values []string) error {
 
 func (s *DuckDBSource) appendPackageVersions(table string, pkgs []PackageVersion) error {
 	ctx := context.Background()
-	stmt, err := s.conn.PrepareContext(ctx, fmt.Sprintf(`INSERT INTO %s VALUES (?, ?)`, table))
-	if err != nil {
-		return fmt.Errorf("preparing insert: %w", err)
-	}
-	defer stmt.Close()
-	for _, pv := range pkgs {
-		if _, err := stmt.ExecContext(ctx, pv.Name, pv.Version); err != nil {
-			return fmt.Errorf("inserting row: %w", err)
+	for start := 0; start < len(pkgs); start += insertBatchSize {
+		end := min(start+insertBatchSize, len(pkgs))
+		batch := pkgs[start:end]
+		placeholders := make([]string, len(batch))
+		args := make([]any, 0, len(batch)*2)
+		for i, pv := range batch {
+			placeholders[i] = "(?, ?)"
+			args = append(args, pv.Name, pv.Version)
+		}
+		q := fmt.Sprintf(`INSERT INTO %s VALUES %s`, table, strings.Join(placeholders, ","))
+		if _, err := s.conn.ExecContext(ctx, q, args...); err != nil {
+			return fmt.Errorf("inserting rows: %w", err)
 		}
 	}
 	return nil

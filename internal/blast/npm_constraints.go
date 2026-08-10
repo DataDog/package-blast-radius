@@ -68,20 +68,20 @@ func npmMatches(constraintStr string, version string) bool {
 
 	constraintStr = convertHyphenRange(constraintStr)
 
-	c, ok := getCachedConstraint(constraintStr)
-	if !ok {
-		return false
-	}
+	fc := getCachedFastConstraint(constraintStr)
 
 	v, ok := getCachedVersion(version)
 	if !ok {
 		return false
 	}
 
-	return c.Check(v)
+	return fc.check(v)
 }
 
 func convertHyphenRange(s string) string {
+	if !strings.Contains(s, " - ") {
+		return s
+	}
 	parts := strings.SplitN(s, " - ", 2)
 	if len(parts) != 2 {
 		return s

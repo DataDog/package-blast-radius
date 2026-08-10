@@ -98,6 +98,12 @@ type store struct {
 	pareto     paretoResponse
 	scopesOnce sync.Once
 	scopes     scopesResponse
+
+	// targetByRefMap is built lazily so targetByRef is O(1) rather than a
+	// linear scan of s.targets on every call (rankedTargets loops over every
+	// meta target and calls targetByRef once per target).
+	targetByRefOnce sync.Once
+	targetByRefMap  map[string]*targetSummary
 }
 
 func (s *store) enriched() bool { return s.combinedDownloads != notEnriched }
@@ -122,23 +128,25 @@ type buildKey struct {
 }
 
 type builder struct {
-	in         *interner
-	pkgs       map[int32]*packageEntry
-	routes     map[buildKey]*route
-	dependents map[int32]map[int32]struct{}
-	targets    map[int32]*targetSummary
-	targetPkgs map[buildKey]struct{} // (targetID, package name) pairs already counted
-	skipped    int
+	in            *interner
+	pkgs          map[int32]*packageEntry
+	routes        map[buildKey]*route
+	dependents    map[int32]map[int32]struct{}
+	targets       map[int32]*targetSummary
+	targetPkgs    map[buildKey]struct{} // (targetID, package name) pairs already counted
+	targetNameIDs map[int32]int32       // targetID -> interned package-name id, cached to avoid re-interning per entry
+	skipped       int
 }
 
 func newBuilder(estimatedPackages int) *builder {
 	return &builder{
-		in:         newInterner(estimatedPackages * 4),
-		pkgs:       make(map[int32]*packageEntry, estimatedPackages),
-		routes:     make(map[buildKey]*route, estimatedPackages),
-		dependents: make(map[int32]map[int32]struct{}, estimatedPackages),
-		targets:    make(map[int32]*targetSummary),
-		targetPkgs: make(map[buildKey]struct{}, estimatedPackages),
+		in:            newInterner(estimatedPackages * 4),
+		pkgs:          make(map[int32]*packageEntry, estimatedPackages),
+		routes:        make(map[buildKey]*route, estimatedPackages),
+		dependents:    make(map[int32]map[int32]struct{}, estimatedPackages),
+		targets:       make(map[int32]*targetSummary),
+		targetPkgs:    make(map[buildKey]struct{}, estimatedPackages),
+		targetNameIDs: make(map[int32]int32),
 	}
 }
 
@@ -212,7 +220,14 @@ func (b *builder) recordEdges(a *blast.JSONAffected, targetID int32) {
 		b.addEdge(b.in.id(a.Path[i+1].Package), b.in.id(a.Path[i].Package))
 	}
 	last := a.Path[len(a.Path)-1].Package
-	b.addEdge(b.in.id(targetName(b.in.str(targetID))), b.in.id(last))
+	// The target's package-name id is constant per target; cache it so the
+	// str->split->intern round-trip runs once per target, not once per entry.
+	nameID, ok := b.targetNameIDs[targetID]
+	if !ok {
+		nameID = b.in.id(targetName(b.in.str(targetID)))
+		b.targetNameIDs[targetID] = nameID
+	}
+	b.addEdge(nameID, b.in.id(last))
 }
 
 func (b *builder) addEdge(dependency, dependent int32) {

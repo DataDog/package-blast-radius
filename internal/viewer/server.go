@@ -124,6 +124,11 @@ func intParam(s string, def, min int) int {
 	return v
 }
 
+// containsLower is a case-insensitive substring check that lowercases ASCII
+// in place rather than allocating lowercased copies. It's on the package-list
+// hot path (called per package and per route hop during search), so avoiding
+// the two strings.ToLower allocations matters. npm package names are ASCII,
+// so the ASCII-only folding is sufficient.
 func containsLower(s, sub string) bool {
 	if len(sub) > len(s) {
 		return false
