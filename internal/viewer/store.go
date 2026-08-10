@@ -545,6 +545,8 @@ func loadStore(jsonPath string) (*store, error) {
 			err = dec.Decode(&summary.MaxDepth)
 		case "elapsed":
 			err = dec.Decode(&summary.Elapsed)
+		case "report_name":
+			err = dec.Decode(&summary.ReportName)
 		case "affected":
 			// unique_packages may not be read yet; it only sizes initial allocations.
 			b = newBuilder(max(summary.UniquePackages, 1024))

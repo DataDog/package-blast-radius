@@ -22,6 +22,7 @@ func newAnalyzeCmd() *cobra.Command {
 		csvPath         string
 		outputDir       string
 		noSave          bool
+		reportName      string
 	)
 
 	cmd := &cobra.Command{
@@ -124,6 +125,7 @@ results can be the next run's targets.`,
 				OutputDir:       runDir,
 				Stdout:          cmd.OutOrStdout(),
 				Progress:        cmd.ErrOrStderr(),
+				ReportName:      reportName,
 			})
 		},
 	}
@@ -137,6 +139,7 @@ results can be the next run's targets.`,
 	cmd.Flags().StringVar(&csvPath, "csv", "", "path to a CSV of compromised packages ('package;v1,v2' per line, or an affected-packages.csv from a previous run)")
 	cmd.Flags().StringVar(&outputDir, "output-dir", "", "where to save this run's artifacts (default: output/<timestamp>/)")
 	cmd.Flags().BoolVar(&noSave, "no-save", false, "don't save artifacts to disk, only write to stdout")
+	cmd.Flags().StringVar(&reportName, "report-name", "", "optional title shown as the heading in the viewer instead of the synthesized compromised-package count")
 
 	return cmd
 }

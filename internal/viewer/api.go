@@ -55,6 +55,7 @@ type summaryResponse struct {
 	CombinedWeeklyDownloads *int64           `json:"combined_weekly_downloads"`
 	Enriched                bool             `json:"enriched"`
 	SourcePath              string           `json:"source_path"`
+	ReportName              string           `json:"report_name,omitempty"`
 }
 
 type routeResponse struct {
@@ -457,6 +458,7 @@ func (s *store) handleSummary(sourcePath string) http.HandlerFunc {
 		VersionDepthCounts: s.versionDepthCounts,
 		Enriched:           s.enriched(),
 		SourcePath:         sourcePath,
+		ReportName:         s.meta.ReportName,
 	}
 	if s.enriched() {
 		v := s.combinedDownloads

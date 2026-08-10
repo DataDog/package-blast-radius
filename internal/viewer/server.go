@@ -28,6 +28,11 @@ type meta struct {
 	UniquePackages int
 	MaxDepth       int
 	Elapsed        string
+
+	// ReportName is an optional title set via `blast-radius analyze
+	// --report-name`. When non-empty, the viewer renders it as the page
+	// heading instead of the synthesized compromised-package count.
+	ReportName string
 }
 
 // Options configures the viewer beyond the report itself.

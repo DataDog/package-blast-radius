@@ -253,6 +253,7 @@ type JSONResult struct {
 	UniquePackages int            `json:"unique_packages"`
 	MaxDepth       int            `json:"max_depth"`
 	Elapsed        string         `json:"elapsed"`
+	ReportName     string         `json:"report_name,omitempty"`
 	Affected       []JSONAffected `json:"affected"`
 }
 
@@ -275,6 +276,7 @@ func renderJSON(result *BlastResult, w io.Writer) error {
 		UniquePackages: result.UniquePackages,
 		MaxDepth:       result.MaxDepth,
 		Elapsed:        result.Elapsed.Round(time.Millisecond).String(),
+		ReportName:     result.ReportName,
 		Affected:       make([]JSONAffected, len(result.Affected)),
 	}
 	for i, a := range result.Affected {

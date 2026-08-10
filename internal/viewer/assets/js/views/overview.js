@@ -35,17 +35,33 @@ function hero(summary) {
   let sub = 'This report has no target, so nothing downstream was attributed.';
   let versions = null;
 
+  const reportName = summary.report_name;
+
   if (names.size === 1) {
     // The name is the headline and the versions are listed under it, rather
     // than one "name@version" reference that can only describe a single target.
-    title = targets[0].name;
-    mono = true;
-    versions = versionList(targets);
-    const pronoun = targets.length === 1 ? 'it' : 'them';
-    sub = `${plural(summary.unique_packages, 'package')} depend on ${pronoun}, within ${plural(summary.max_depth, 'hop')}.`;
+    if (reportName) {
+      // A custom title replaces the package name in the heading, so the
+      // compromised package and its versions move into the subtitle.
+      title = reportName;
+      sub = `${targets[0].name} compromised at ${plural(targets.length, 'version')}; ${plural(summary.unique_packages, 'package')} depend on it, within ${plural(summary.max_depth, 'hop')}.`;
+    } else {
+      title = targets[0].name;
+      mono = true;
+      versions = versionList(targets);
+      const pronoun = targets.length === 1 ? 'it' : 'them';
+      sub = `${plural(summary.unique_packages, 'package')} depend on ${pronoun}, within ${plural(summary.max_depth, 'hop')}.`;
+    }
   } else if (targets.length > 1) {
-    title = plural(names.size, 'compromised package');
-    sub = `${plural(targets.length, 'version')} in total, reaching ${plural(summary.unique_packages, 'package')}.`;
+    if (reportName) {
+      // The custom title takes the heading, and the compromised-package count
+      // that used to be the headline moves into the subtitle.
+      title = reportName;
+      sub = `${plural(names.size, 'compromised package')} (${plural(targets.length, 'version')}), reaching ${plural(summary.unique_packages, 'package')}.`;
+    } else {
+      title = plural(names.size, 'compromised package');
+      sub = `${plural(targets.length, 'version')} in total, reaching ${plural(summary.unique_packages, 'package')}.`;
+    }
   }
 
   return el(

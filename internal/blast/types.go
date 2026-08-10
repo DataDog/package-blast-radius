@@ -41,4 +41,9 @@ type BlastResult struct {
 	UniquePackages int
 	MaxDepth       int
 	Elapsed        time.Duration
+
+	// ReportName is an optional human-readable title for the report (e.g.
+	// "ChainDrop worm"). When set, the viewer renders it as the page heading
+	// instead of the synthesized "N compromised packages" line.
+	ReportName string
 }

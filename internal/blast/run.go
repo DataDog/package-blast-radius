@@ -24,6 +24,11 @@ type Options struct {
 	OutputDir       string // empty = don't save artifacts; the caller owns the naming
 	Stdout          io.Writer
 	Progress        io.Writer
+
+	// ReportName is an optional title shown as the heading in the viewer
+	// instead of the synthesized compromised-package count. Empty keeps the
+	// default behavior.
+	ReportName string
 }
 
 type dependentSource interface {
@@ -207,6 +212,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	result.Elapsed = time.Since(start)
+	result.ReportName = opts.ReportName
 
 	if err := RenderResults(result, opts.Format, opts.Top, stdout); err != nil {
 		return err

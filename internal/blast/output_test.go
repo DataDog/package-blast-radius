@@ -135,6 +135,36 @@ func TestRenderJSONRoundTrips(t *testing.T) {
 	}
 }
 
+// report_name is optional: it must be omitted when empty (so the JSON
+// contract test stays stable and old viewers ignore it) and round-trip when set.
+func TestRenderJSONReportName(t *testing.T) {
+	t.Run("omitted when empty", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := RenderResults(sampleResult(), "json", 0, &buf); err != nil {
+			t.Fatalf("RenderResults: %v", err)
+		}
+		if strings.Contains(buf.String(), "report_name") {
+			t.Errorf("empty report_name should be omitted, got %q", buf.String())
+		}
+	})
+
+	t.Run("round-trips when set", func(t *testing.T) {
+		r := sampleResult()
+		r.ReportName = "ChainDrop worm"
+		var buf bytes.Buffer
+		if err := RenderResults(r, "json", 0, &buf); err != nil {
+			t.Fatalf("RenderResults: %v", err)
+		}
+		var decoded JSONResult
+		if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+			t.Fatalf("decoding: %v", err)
+		}
+		if decoded.ReportName != "ChainDrop worm" {
+			t.Errorf("report_name = %q, want %q", decoded.ReportName, "ChainDrop worm")
+		}
+	})
+}
+
 func TestRenderCSV(t *testing.T) {
 	var buf bytes.Buffer
 	if err := RenderResults(sampleResult(), "csv", 0, &buf); err != nil {

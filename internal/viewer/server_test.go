@@ -501,6 +501,48 @@ func TestAPISummary(t *testing.T) {
 	}
 }
 
+// A report_name set by `analyze --report-name` must round-trip through the
+// JSON the viewer reads and surface on /api/summary so the hero can use it.
+func TestAPISummarySurfacesReportName(t *testing.T) {
+	fixture := reportFixture()
+	fixture.ReportName = "ChainDrop worm"
+
+	s, err := loadStore(writeReport(t, fixture))
+	if err != nil {
+		t.Fatalf("loadStore: %v", err)
+	}
+	if s.meta.ReportName != "ChainDrop worm" {
+		t.Fatalf("meta.ReportName = %q, want the title to survive loading", s.meta.ReportName)
+	}
+
+	assets, err := assetFS("")
+	if err != nil {
+		t.Fatalf("assetFS: %v", err)
+	}
+	mux := http.NewServeMux()
+	registerRoutes(mux, s, "report.json", assets)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	var got summaryResponse
+	getJSON(t, srv, "/api/summary", &got)
+	if got.ReportName != "ChainDrop worm" {
+		t.Errorf("report_name = %q, want %q", got.ReportName, "ChainDrop worm")
+	}
+}
+
+// And when the field is absent the viewer must not invent one: the default
+// heading is the synthesized compromised-package count.
+func TestAPISummaryOmitsReportNameWhenAbsent(t *testing.T) {
+	srv := serveFixture(t)
+
+	var got summaryResponse
+	getJSON(t, srv, "/api/summary", &got)
+	if got.ReportName != "" {
+		t.Errorf("report_name = %q, want empty when --report-name was not set", got.ReportName)
+	}
+}
+
 func TestAPISummaryReportsAnUnenrichedReportAsNull(t *testing.T) {
 	fixture := reportFixture()
 	for i := range fixture.Affected {
