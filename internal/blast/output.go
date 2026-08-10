@@ -372,16 +372,26 @@ func compareVersionStrings(a, b string) int {
 // FormatNumber groups digits with commas. Row and edge counts here run into the
 // hundreds of millions, which are unreadable otherwise.
 func FormatNumber(n int64) string {
-	if n < 1000 {
-		return fmt.Sprintf("%d", n)
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
 	}
-	s := fmt.Sprintf("%d", n)
-	var out []byte
-	for i, c := range s {
-		if i > 0 && (len(s)-i)%3 == 0 {
-			out = append(out, ',')
-		}
-		out = append(out, byte(c))
+
+	// Preserve a leading '-' so negative counts format correctly too.
+	sign := ""
+	if s[0] == '-' {
+		sign, s = "-", s[1:]
 	}
-	return string(out)
+
+	first := len(s) % 3
+	if first == 0 {
+		first = 3
+	}
+	out := make([]byte, 0, len(s)+len(s)/3)
+	out = append(out, s[:first]...)
+	for i := first; i < len(s); i += 3 {
+		out = append(out, ',')
+		out = append(out, s[i:i+3]...)
+	}
+	return sign + string(out)
 }
