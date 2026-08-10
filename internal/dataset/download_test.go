@@ -482,6 +482,25 @@ func TestPreflightReportsEveryProblemAtOnce(t *testing.T) {
 	}
 }
 
+func TestPreflightRejectsBadSnapshotDate(t *testing.T) {
+	tests := []struct {
+		date string
+		ok   bool
+	}{
+		{"2026-03-23", true},
+		{"", true}, // empty means discover
+		{"2026-3-23", false},
+		{"not-a-date", false},
+		{"2026-01-01'; DROP TABLE--", false},
+	}
+	for _, tt := range tests {
+		opts := Options{System: blast.NPM, ProjectID: "p", SnapshotDate: tt.date}
+		if err := preflight(&opts); (err == nil) != tt.ok {
+			t.Errorf("preflight(SnapshotDate=%q) ok=%v, want %v", tt.date, err == nil, tt.ok)
+		}
+	}
+}
+
 func TestParquetDirPrefersTheExplicitOverride(t *testing.T) {
 	tests := []struct {
 		opts Options
