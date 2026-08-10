@@ -27,7 +27,10 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w
+      - -s -w -linkmode=external -extldflags=-Wl,--gc-sections
+    hooks:
+      post:
+        - x86_64-unknown-linux-gnu-strip "{{ .Path }}"
 
   - id: linux-arm64
     binary: blast-radius
@@ -41,7 +44,10 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w
+      - -s -w -linkmode=external -extldflags=-Wl,--gc-sections
+    hooks:
+      post:
+        - aarch64-unknown-linux-gnu-strip "{{ .Path }}"
 
   - id: darwin-amd64
     binary: blast-radius
@@ -53,7 +59,10 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w
+      - -s -w -linkmode=external -extldflags=-Wl,-dead_strip
+    hooks:
+      post:
+        - strip "{{ .Path }}"
 
   - id: darwin-arm64
     binary: blast-radius
@@ -65,7 +74,10 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w
+      - -s -w -linkmode=external -extldflags=-Wl,-dead_strip
+    hooks:
+      post:
+        - strip "{{ .Path }}"
 
 archives:
   - name_template: >-
@@ -73,6 +85,8 @@ archives:
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else }}{{ .Arch }}{{ end }}
+    formats:
+      - tar.gz
 
 checksum:
   name_template: "checksums.txt"
