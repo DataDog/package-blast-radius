@@ -4,6 +4,21 @@
 
 Give `blast-radius` a package name and version, even a yanked one, and it finds every package whose declared version range could resolve to it. The tool queries a local snapshot of the [deps.dev](https://deps.dev) dependency graph, which Google publishes as a BigQuery public dataset.
 
+### Dashboard preview
+
+The `blast-radius visualize` web viewer turns a report into an interactive dashboard. Below is a glimpse of the [ChainDrop worm](https://www.itpro.com/security/malware/shai-hulud-here-we-go-again-thousands-of-npm-packages-compromised-in-chaindrop-malware-campaign-where-hackers-taunt-victims) analysis (444 compromised `keyv` packages reaching 42,464 packages) — click any thumbnail for the full view.
+
+<table>
+  <tr>
+    <td width="50%" align="center"><a href="demo/dashboard-1.png"><img src="demo/dashboard-1.png" width="400" alt="Overview dashboard"></a><br><sub><b>Overview</b> — blast-radius summary, hops histogram & top scopes</sub></td>
+    <td width="50%" align="center"><a href="demo/dashboard-2.png"><img src="demo/dashboard-2.png" width="400" alt="Explore graph"></a><br><sub><b>Explore</b> — interactive dependency graph around the compromise</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><a href="demo/dashboard-3.png"><img src="demo/dashboard-3.png" width="400" alt="Route to compromised package"></a><br><sub><b>Route</b> — path from a package down to the compromised version</sub></td>
+    <td width="50%" align="center"><a href="demo/dashboard-4.png"><img src="demo/dashboard-4.png" width="400" alt="Affected packages table"></a><br><sub><b>Affected packages</b> — searchable table of the full blast radius</sub></td>
+  </tr>
+</table>
+
 ## Sample usage
 
 In July 2026, version 3.3.1 of the `@asyncapi/generator` package was compromised. Using `blast-radius`, we can find all transitive dependencies of this package that don't lock versions and could end up installing the malicious package.
@@ -73,6 +88,7 @@ One binary provides all three subcommands:
 | `blast-radius download-data` | export the dependency graph from BigQuery and build the local database |
 | `blast-radius analyze` | compute the blast radius of one or more compromised versions |
 | `blast-radius visualize` | browse a generated JSON report in a local web UI |
+| `blast-radius enrich-download-count` | add npm weekly download counts to a saved report, in place |
 
 ### Step 1: Get the data
 
@@ -152,6 +168,10 @@ blast-radius analyze npm axios 1.14.1
 # Rank by weekly download counts (slower, might hit rate limits if the result count is high)
 blast-radius analyze npm axios 1.14.1 --enrich-with-download-count
 
+# Download counts hit the npm registry, which rate-limits per IP behind
+# Cloudflare. Set NPM_TOKEN to lift the unauthenticated limit:
+NPM_TOKEN=$(cat ~/.npm-token) blast-radius analyze npm axios 1.14.1 --enrich-with-download-count
+
 # Find transitive dependencies up to a depth of 5
 blast-radius analyze npm axios 1.14.1 --depth 5
 
@@ -173,6 +193,27 @@ Every run writes its full results to `output/<YYYY-MM-DD_HHMMSS>/`.
 | `blast-radius.json` | the full report |
 | `affected-packages.csv` | `package_name,vulnerable_versions`, one row per unique package |
 | `paths.csv` | one row per affected version, with depth, downloads, target and path |
+
+#### Adding download counts to a saved report
+
+If you ran `analyze` without `--enrich-with-download-count` (or a previous
+enrichment was interrupted), `enrich-download-count` adds the counts to an
+existing output folder in place, reusing the same paced, rate-limit-aware logic:
+
+```bash
+# Enrich a previous run's output folder (only packages still missing a count)
+NPM_TOKEN=$(cat ~/.npm-token) blast-radius enrich-download-count output/2026-08-10_095042
+
+# Re-fetch every package to refresh stale counts
+blast-radius enrich-download-count output/2026-08-10_095042 --force
+
+# Slow the request pace if you hit 429s
+blast-radius enrich-download-count output/2026-08-10_095042 --rate 1
+```
+
+The npm downloads API rate-limits per IP, so requests are paced (`--rate`,
+default 2 req/s) and back off together on 429. Without `NPM_TOKEN` the run is
+best-effort and much slower; the command prints a warning.
 
 ### Step 3: Visualize the data
 
