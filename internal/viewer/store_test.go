@@ -391,6 +391,10 @@ func TestSplitTargetRef(t *testing.T) {
 		{"@scope/pkg@1.2.3", "@scope/pkg", "1.2.3"},
 		{"@scope/pkg", "@scope/pkg", ""},
 		{"bare", "bare", ""},
+		// A bare '@' has LastIndex 0, so i > 0 is false and the whole thing is
+		// treated as a name with no version.
+		{"@", "@", ""},
+		{"", "", ""},
 	}
 	for _, tt := range tests {
 		name, version := splitTargetRef(tt.ref)
