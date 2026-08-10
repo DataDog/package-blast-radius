@@ -6,6 +6,7 @@ import { createCopyButton, token } from '../charts/copy-image.js';
 
 const TOP_TARGETS = 10;
 const TOP_SCOPES = 12;
+const TOP_DOWNLOADS = 10;
 
 // Past this many rows the expanded list scrolls inside the panel rather than
 // running the page down: a report can name hundreds of scopes.
@@ -300,6 +301,74 @@ function scopeFootnote(response, hidden) {
 }
 
 /**
+ * The affected packages with the most weekly downloads. Only shown when the
+ * report is enriched and at least one package has a non-zero count, so an
+ * unenriched report never shows a placeholder.
+ *
+ * The packages endpoint is already impact-ordered (by weekly downloads) when
+ * enriched, so the top-N is a free query; the panel still renders a loading
+ * state first to match the scope and pareto panels.
+ */
+function topDownloadsPanel(summary, onPick) {
+  if (!summary.enriched || !(summary.combined_weekly_downloads > 0)) return null;
+
+  const bars = el('div', { class: 'bars' }, loadingState('Ranking affected packages by downloads…'));
+  const note = el('p', { class: 'panel__note' });
+
+  const panel = el(
+    'section',
+    { class: 'panel panel--fill' },
+    el('div', { class: 'panel__head' }, el('h2', { class: 'eyebrow' }, 'Most downloaded affected packages')),
+    el(
+      'p',
+      { class: 'panel__hint' },
+      'The affected packages with the most weekly downloads. ' +
+        'Counts are per package, summed across vulnerable versions.',
+    ),
+    bars,
+    note,
+  );
+
+  api
+    .packages({ sort: 'weekly_downloads', dir: 'desc', limit: TOP_DOWNLOADS })
+    .then((response) => {
+      const rows = (response.results || []).filter((p) => (p.weekly_downloads ?? 0) > 0);
+      if (rows.length === 0) {
+        panel.hidden = true;
+        return;
+      }
+      const largest = Math.max(...rows.map((p) => p.weekly_downloads), 1);
+      replace(bars, ...rows.map((p) => topDownloadRow(p, largest, onPick)));
+      replace(note, `Top ${rows.length} of ${count(response.total)} affected packages by weekly downloads.`);
+    })
+    .catch((error) => replace(bars, errorState(error)));
+
+  return panel;
+}
+
+function topDownloadRow(pkg, largest, onPick) {
+  return el(
+    'button',
+    {
+      class: 'bars-link',
+      type: 'button',
+      title: `Show ${pkg.name} in the affected packages list`,
+      on: { click: () => onPick(pkg.name) },
+    },
+    el('span', { class: 'bar-row__label mono bar-row__label--truncate' }, pkg.name),
+    el(
+      'span',
+      { class: 'bar-row__track' },
+      el('span', {
+        class: 'bar-row__fill bar-row__fill--flat',
+        style: `width: ${Math.max((pkg.weekly_downloads / largest) * 100, 1.5)}%`,
+      }),
+    ),
+    el('span', { class: 'bar-row__value' }, downloads(pkg.weekly_downloads)),
+  );
+}
+
+/**
  * The same ranking the chart draws, as rows that filter Explore.
  *
  * It sits inside the chart's panel rather than in one of its own: two panels over
@@ -554,6 +623,7 @@ export function createOverviewView({ summary, router }) {
     { class: 'page' },
     hero(summary),
     stats,
+    topDownloadsPanel(summary, (name) => filterExplore({ search: name })),
     breakdown,
     paretoPanel(summary, (ref) => filterExplore({ target: ref })),
     about(),

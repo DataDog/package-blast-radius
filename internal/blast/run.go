@@ -24,6 +24,10 @@ type Options struct {
 	OutputDir       string // empty = don't save artifacts; the caller owns the naming
 	Stdout          io.Writer
 	Progress        io.Writer
+	// EnrichScopedPackages opts into exact npm download-count enrichment for
+	// scoped packages even when there are many. Scoped names cannot use npm's
+	// bulk downloads endpoint.
+	EnrichScopedPackages bool
 
 	// ReportName is an optional title shown as the heading in the viewer
 	// instead of the synthesized compromised-package count. Empty keeps the
@@ -205,8 +209,17 @@ func Run(ctx context.Context, opts Options) error {
 		if !system.SupportsEnrichment() {
 			fmt.Fprintf(progress, "warning: download counts are not available for %s\n", system)
 		} else {
+			if system == NPM && npmAuthToken == "" {
+				fmt.Fprintf(progress, "warning: NPM_TOKEN is not set; the npm downloads API will heavily rate-limit unauthenticated requests. Set NPM_TOKEN to lift it.\n")
+			}
 			fmt.Fprintf(progress, "Enriching %d unique packages with download counts...\n", result.UniquePackages)
-			if err := Enrich(ctx, system, result.Affected, 20); err != nil {
+			if err := Enrich(ctx, system, result.Affected, EnrichOptions{
+				Workers:                4,
+				Rate:                   npmEnrichDefaultRate,
+				Progress:               progress,
+				IncludeScopedPackages:  opts.EnrichScopedPackages,
+				ScopedPackageOptInFlag: "--enrich-scoped-packages",
+			}); err != nil {
 				fmt.Fprintf(progress, "warning: %v\n", err)
 			}
 		}
@@ -219,7 +232,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	if opts.OutputDir != "" {
-		return saveArtifacts(result, opts.OutputDir, progress)
+		return SaveArtifacts(result, opts.OutputDir, progress)
 	}
 	return nil
 }
@@ -488,7 +501,7 @@ var artifacts = []struct {
 	}},
 }
 
-func saveArtifacts(result *BlastResult, dir string, progress io.Writer) error {
+func SaveArtifacts(result *BlastResult, dir string, progress io.Writer) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
 	}
@@ -508,18 +521,34 @@ func saveArtifacts(result *BlastResult, dir string, progress io.Writer) error {
 }
 
 func writeArtifact(path string, result *BlastResult, format string) error {
-	f, err := os.Create(path)
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", path, err)
 	}
-	defer f.Close()
+	tmpPath := f.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			os.Remove(tmpPath)
+		}
+	}()
 
 	buf := bufio.NewWriter(f)
 	if err := renderTo(result, format, 0, buf); err != nil {
+		f.Close()
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	if err := buf.Flush(); err != nil {
+		f.Close()
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replacing %s: %w", path, err)
+	}
+	committed = true
+	return nil
 }

@@ -21,6 +21,7 @@ func main() {
   download-data   export a dependency graph from BigQuery and build the local database
   analyze         compute the blast radius of one or more compromised versions
   visualize       browse a previously generated JSON report in a local web UI
+  enrich-download-count  add npm weekly download counts to a saved report
 
 Examples:
   blast-radius download-data npm --project my-gcp-project
@@ -32,7 +33,7 @@ Examples:
 		SilenceErrors: true,
 	}
 
-	root.AddCommand(newDownloadDataCmd(), newAnalyzeCmd(), newVisualizeCmd())
+	root.AddCommand(newDownloadDataCmd(), newAnalyzeCmd(), newVisualizeCmd(), newEnrichDownloadCountCmd())
 
 	if err := root.Execute(); err != nil {
 		if !errors.Is(err, errQuiet) {

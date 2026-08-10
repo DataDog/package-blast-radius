@@ -503,8 +503,8 @@ func TestSaveArtifacts(t *testing.T) {
 	sortByImpact(result.Affected)
 
 	var progress strings.Builder
-	if err := saveArtifacts(result, dir, &progress); err != nil {
-		t.Fatalf("saveArtifacts: %v", err)
+	if err := SaveArtifacts(result, dir, &progress); err != nil {
+		t.Fatalf("SaveArtifacts: %v", err)
 	}
 
 	for _, name := range []string{"blast-radius.json", "affected-packages.csv", "paths.csv"} {
@@ -563,7 +563,7 @@ func TestSaveArtifactsFailsLoudly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := saveArtifacts(sampleResult(), filepath.Join(blocked, "run"), io.Discard)
+	err := SaveArtifacts(sampleResult(), filepath.Join(blocked, "run"), io.Discard)
 	if err == nil {
 		t.Error("got nil error, want a failure rather than silently losing the results")
 	}

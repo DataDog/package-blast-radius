@@ -257,6 +257,56 @@ type JSONResult struct {
 	Affected       []JSONAffected `json:"affected"`
 }
 
+// BlastResultFromJSON reconstructs a BlastResult from a JSONResult — the
+// inverse of renderJSON. It lets `enrich-download-count` re-enrich a report a
+// previous `analyze` run saved, without re-running the analysis.
+func BlastResultFromJSON(r *JSONResult) (*BlastResult, error) {
+	system, ok := ParseEcosystem(r.System)
+	if !ok {
+		return nil, fmt.Errorf("unknown ecosystem %q", r.System)
+	}
+	targets := make([]PackageVersion, len(r.Targets))
+	for i, t := range r.Targets {
+		targets[i] = PackageVersion{System: system, Name: t.Name, Version: t.Version}
+	}
+	affected := make([]AffectedPackage, len(r.Affected))
+	for i, a := range r.Affected {
+		tName, tVer := splitTargetRef(a.Target)
+		steps := make([]PathStep, len(a.Path))
+		for j, s := range a.Path {
+			steps[j] = PathStep{Package: s.Package, Version: s.Version, Requirement: s.Requirement}
+		}
+		affected[i] = AffectedPackage{
+			PackageVersion:  PackageVersion{System: system, Name: a.Name, Version: a.Version},
+			Depth:           a.Depth,
+			Path:            steps,
+			Target:          PackageVersion{System: system, Name: tName, Version: tVer},
+			WeeklyDownloads: a.WeeklyDownloads,
+		}
+	}
+	elapsed, _ := time.ParseDuration(r.Elapsed)
+	return &BlastResult{
+		Targets:        targets,
+		TotalEdges:     r.TotalEdges,
+		Affected:       affected,
+		UniquePackages: r.UniquePackages,
+		MaxDepth:       r.MaxDepth,
+		Elapsed:        elapsed,
+		ReportName:     r.ReportName,
+	}, nil
+}
+
+// splitTargetRef decomposes a "name@version" target reference, handling scoped
+// names whose name itself contains an '@' (e.g. "@scope/pkg@1.2.3"). A version
+// never contains '@', so the split is the last '@' with a non-empty name before
+// it. Mirrors the viewer's splitTargetRef.
+func splitTargetRef(ref string) (name, version string) {
+	if i := strings.LastIndex(ref, "@"); i > 0 {
+		return ref[:i], ref[i+1:]
+	}
+	return ref, ""
+}
+
 func renderJSON(result *BlastResult, w io.Writer) error {
 	system := ""
 	if len(result.Targets) > 0 {

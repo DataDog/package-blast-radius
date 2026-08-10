@@ -16,6 +16,7 @@ func newAnalyzeCmd() *cobra.Command {
 		output          string
 		dbPath          string
 		enrichDownloads bool
+		enrichScoped    bool
 		top             int
 		depth           int
 		versions        string
@@ -40,7 +41,12 @@ offline reverse dependency lookup with version range matching.
 
 Runs fully offline by default. Pass --enrich-with-download-count to look up
 weekly download counts from the registry, which ranks results by real-world
-impact at the cost of several minutes and a lot of API calls.
+impact at the cost of several minutes and a lot of API calls. npm cannot bulk
+fetch scoped package counts, so large scoped tails are skipped unless
+--enrich-scoped-packages is set. The npm downloads API rate-limits per IP behind
+Cloudflare; set the NPM_TOKEN environment variable to lift the unauthenticated
+limit, or use 'blast-radius enrich-download-count' to add counts to a saved
+report after the fact.
 
 Every run saves its results to output/<timestamp>/:
   blast-radius.json      full report, the input to 'blast-radius visualize'
@@ -115,17 +121,18 @@ results can be the next run's targets.`,
 			}
 
 			return blast.Run(cmd.Context(), blast.Options{
-				System:          ecosystem,
-				Targets:         targets,
-				DBPath:          dbPath,
-				Format:          output,
-				EnrichDownloads: enrichDownloads,
-				Top:             top,
-				MaxDepth:        depth,
-				OutputDir:       runDir,
-				Stdout:          cmd.OutOrStdout(),
-				Progress:        cmd.ErrOrStderr(),
-				ReportName:      reportName,
+				System:               ecosystem,
+				Targets:              targets,
+				DBPath:               dbPath,
+				Format:               output,
+				EnrichDownloads:      enrichDownloads,
+				Top:                  top,
+				MaxDepth:             depth,
+				OutputDir:            runDir,
+				Stdout:               cmd.OutOrStdout(),
+				Progress:             cmd.ErrOrStderr(),
+				EnrichScopedPackages: enrichScoped,
+				ReportName:           reportName,
 			})
 		},
 	}
@@ -133,6 +140,7 @@ results can be the next run's targets.`,
 	cmd.Flags().StringVar(&output, "output", "table", "output format: table, json, csv")
 	cmd.Flags().StringVar(&dbPath, "db", "", "path to DuckDB database (default: look for <ecosystem>-deps.duckdb in current dir, ./data/, or ~/.blast-radius/)")
 	cmd.Flags().BoolVar(&enrichDownloads, "enrich-with-download-count", false, "look up weekly download counts from the registry and rank results by them (slow, requires network)")
+	cmd.Flags().BoolVar(&enrichScoped, "enrich-scoped-packages", false, "with --enrich-with-download-count, include scoped packages even when npm requires slow one-by-one lookups")
 	cmd.Flags().IntVar(&top, "top", 50, "number of results to display in table mode (0 = all)")
 	cmd.Flags().IntVar(&depth, "depth", 1, "max dependency depth (1 = direct only, 2+ = transitive)")
 	cmd.Flags().StringVar(&versions, "versions", "", "comma-separated list of compromised versions")

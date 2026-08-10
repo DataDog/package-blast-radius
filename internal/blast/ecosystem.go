@@ -2,6 +2,7 @@ package blast
 
 import (
 	"context"
+	"io"
 	"sort"
 	"strings"
 )
@@ -19,7 +20,7 @@ type ecosystemInfo struct {
 	cliName string
 	dbName  string
 	matches func(constraint, version string) bool
-	enrich  func(ctx context.Context, affected []AffectedPackage, workers int) error // nil if unsupported
+	enrich  func(ctx context.Context, affected []AffectedPackage, opts EnrichOptions) error // nil if unsupported
 	// bqSystem is the System value in the deps.dev BigQuery dataset. Empty means
 	// no dataset export exists, so 'download-data' rejects the ecosystem.
 	bqSystem string
@@ -106,13 +107,43 @@ func (e Ecosystem) SupportsEnrichment() bool {
 	return ecosystems[e].enrich != nil
 }
 
+// EnrichOptions configures download-count enrichment.
+type EnrichOptions struct {
+	// Workers is the pipeline depth (concurrent in-flight requests). The npm
+	// downloads API rate-limits per IP, so this only needs to cover network
+	// latency; the Rate limiter bounds the actual request rate.
+	Workers int
+	// Rate is the target request rate in req/s. 0 means unlimited (burst). For
+	// the npm downloads API a small positive rate (e.g. 2) avoids the Cloudflare
+	// 429-avalanche that bursting causes.
+	Rate float64
+	// Progress, if non-nil, receives a periodic one-line status (resolved/total,
+	// rate, ETA) while enrichment runs.
+	Progress io.Writer
+	// IncludeScopedPackages fetches npm scoped packages even when their count is
+	// high enough to be slow. npm's bulk downloads endpoint rejects scoped names,
+	// so these are one request per package.
+	IncludeScopedPackages bool
+	// ScopedPackageThreshold is the number of scoped npm packages allowed before
+	// they are skipped unless IncludeScopedPackages is true. The package default
+	// is used when this is zero or negative.
+	ScopedPackageThreshold int
+	// ScopedPackageOptInFlag names the caller's flag for enabling slow scoped
+	// package enrichment, used only in progress messages.
+	ScopedPackageOptInFlag string
+	// OnPackageResolved, if non-nil, is called once for each package name after
+	// the registry returned either a download count or "no data". A nil
+	// downloads pointer means the package has no download data.
+	OnPackageResolved func(name string, downloads *int64)
+}
+
 // Enrich populates WeeklyDownloads in place, best effort: a returned error
 // reports missing data, not that the run should be abandoned. No-op without a
 // registry source.
-func Enrich(ctx context.Context, system Ecosystem, affected []AffectedPackage, workers int) error {
+func Enrich(ctx context.Context, system Ecosystem, affected []AffectedPackage, opts EnrichOptions) error {
 	info := ecosystems[system]
 	if info.enrich == nil {
 		return nil
 	}
-	return info.enrich(ctx, affected, workers)
+	return info.enrich(ctx, affected, opts)
 }

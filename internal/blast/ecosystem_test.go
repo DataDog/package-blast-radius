@@ -80,7 +80,7 @@ func TestUnregisteredEcosystemIsInert(t *testing.T) {
 	if PyPI.SupportsDatasetDownload() {
 		t.Error("PyPI reports dataset download support without being registered")
 	}
-	if err := Enrich(context.Background(), PyPI, nil, 1); err != nil {
+	if err := Enrich(context.Background(), PyPI, nil, EnrichOptions{Workers: 1}); err != nil {
 		t.Errorf("Enrich on an unregistered ecosystem returned %v, want nil", err)
 	}
 }

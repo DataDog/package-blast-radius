@@ -393,6 +393,11 @@ select {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: var(--space-5);
   align-items: stretch;
+  /* The breakdown earns its own top gap rather than borrowing the stat row's
+     margin-bottom, so a section inserted above it (e.g. the downloads ranking)
+     doesn't sit flush against it. Collapses with the stat row's margin-bottom,
+     so the original spacing is unchanged. */
+  margin-top: var(--space-6);
 }
 
 /* Bars stay with their heading and any closing note sits at the foot of the
@@ -448,6 +453,15 @@ select {
   font-size: var(--text-sm);
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+/* Package names in the downloads ranking can be long (scoped names especially),
+   so the label truncates where the scope panel's short labels don't need to. */
+.bar-row__label--truncate {
+  min-width: 0;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bar-row__track {

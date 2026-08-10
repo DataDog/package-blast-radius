@@ -165,6 +165,78 @@ func TestRenderJSONReportName(t *testing.T) {
 	})
 }
 
+// BlastResultFromJSON is the inverse of renderJSON: a report saved by analyze
+// must round-trip back into a BlastResult the enricher and artifact writer can
+// use, including scoped target refs and the report_name.
+func TestBlastResultFromJSONRoundTrips(t *testing.T) {
+	src := sampleResult()
+	src.ReportName = "ChainDrop worm"
+
+	var buf bytes.Buffer
+	if err := RenderResults(src, "json", 0, &buf); err != nil {
+		t.Fatalf("RenderResults: %v", err)
+	}
+	var decoded JSONResult
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	got, err := BlastResultFromJSON(&decoded)
+	if err != nil {
+		t.Fatalf("BlastResultFromJSON: %v", err)
+	}
+	if got.Targets[0].System != src.Targets[0].System { // NPM
+		t.Errorf("system = %q, want %q", got.Targets[0].System, src.Targets[0].System)
+	}
+	if got.TotalEdges != src.TotalEdges || got.UniquePackages != src.UniquePackages || got.MaxDepth != src.MaxDepth {
+		t.Errorf("metadata lost: edges=%d uniq=%d depth=%d", got.TotalEdges, got.UniquePackages, got.MaxDepth)
+	}
+	if got.ReportName != "ChainDrop worm" {
+		t.Errorf("report_name = %q", got.ReportName)
+	}
+	if len(got.Affected) != len(src.Affected) {
+		t.Fatalf("affected = %d, want %d", len(got.Affected), len(src.Affected))
+	}
+	for i := range src.Affected {
+		w, g := src.Affected[i], got.Affected[i]
+		if g.Name != w.Name || g.Version != w.Version || g.Depth != w.Depth {
+			t.Errorf("affected[%d] = %+v, want %+v", i, g, w)
+		}
+		if g.Target != w.Target {
+			t.Errorf("affected[%d].Target = %s, want %s", i, g.Target, w.Target)
+		}
+		if g.WeeklyDownloads != w.WeeklyDownloads {
+			t.Errorf("affected[%d].WeeklyDownloads = %d, want %d", i, g.WeeklyDownloads, w.WeeklyDownloads)
+		}
+		if len(g.Path) != len(w.Path) {
+			t.Fatalf("affected[%d].Path len = %d, want %d", i, len(g.Path), len(w.Path))
+		}
+		for j := range w.Path {
+			if g.Path[j] != w.Path[j] {
+				t.Errorf("affected[%d].Path[%d] = %+v, want %+v", i, j, g.Path[j], w.Path[j])
+			}
+		}
+	}
+}
+
+// A scoped target ref ("@scope/pkg@1.2.3") must split on the last '@', not the
+// first, so the name keeps its scope.
+func TestSplitTargetRefHandlesScopedNames(t *testing.T) {
+	for _, tc := range []struct {
+		ref      string
+		wantName string
+		wantVer  string
+	}{
+		{"axios@1.14.1", "axios", "1.14.1"},
+		{"@scope/pkg@1.2.3", "@scope/pkg", "1.2.3"},
+		{"@a/b@0.0.1", "@a/b", "0.0.1"},
+	} {
+		name, ver := splitTargetRef(tc.ref)
+		if name != tc.wantName || ver != tc.wantVer {
+			t.Errorf("splitTargetRef(%q) = (%q, %q), want (%q, %q)", tc.ref, name, ver, tc.wantName, tc.wantVer)
+		}
+	}
+}
+
 func TestRenderCSV(t *testing.T) {
 	var buf bytes.Buffer
 	if err := RenderResults(sampleResult(), "csv", 0, &buf); err != nil {
