@@ -41,21 +41,23 @@ type targetResponse struct {
 }
 
 type summaryResponse struct {
-	Target                  string           `json:"target"`
-	Targets                 []targetResponse `json:"targets"`
-	System                  string           `json:"system"`
-	TotalEdges              int              `json:"total_edges"`
-	TotalAffected           int              `json:"total_affected"`
-	UniquePackages          int              `json:"unique_packages"`
-	DirectDependents        int              `json:"direct_dependents"`
-	MaxDepth                int              `json:"max_depth"`
-	Elapsed                 string           `json:"elapsed"`
-	DepthCounts             map[int]int      `json:"depth_counts"`
-	VersionDepthCounts      map[int]int      `json:"version_depth_counts"`
-	CombinedWeeklyDownloads *int64           `json:"combined_weekly_downloads"`
-	Enriched                bool             `json:"enriched"`
-	SourcePath              string           `json:"source_path"`
-	ReportName              string           `json:"report_name,omitempty"`
+	Target                   string           `json:"target"`
+	Targets                  []targetResponse `json:"targets"`
+	System                   string           `json:"system"`
+	TotalEdges               int              `json:"total_edges"`
+	TotalAffected            int              `json:"total_affected"`
+	UniquePackages           int              `json:"unique_packages"`
+	DirectDependents         int              `json:"direct_dependents"`
+	MaxDepth                 int              `json:"max_depth"`
+	Elapsed                  string           `json:"elapsed"`
+	DepthCounts              map[int]int      `json:"depth_counts"`
+	VersionDepthCounts       map[int]int      `json:"version_depth_counts"`
+	CombinedWeeklyDownloads  *int64           `json:"combined_weekly_downloads"`
+	MissingDownloadsScoped   int              `json:"missing_downloads_scoped_packages"`
+	MissingDownloadsUnscoped int              `json:"missing_downloads_unscoped_packages"`
+	Enriched                 bool             `json:"enriched"`
+	SourcePath               string           `json:"source_path"`
+	ReportName               string           `json:"report_name,omitempty"`
 }
 
 type routeResponse struct {
@@ -463,11 +465,27 @@ func (s *store) handleSummary(sourcePath string) http.HandlerFunc {
 	if s.enriched() {
 		v := s.combinedDownloads
 		resp.CombinedWeeklyDownloads = &v
+		resp.MissingDownloadsScoped, resp.MissingDownloadsUnscoped = s.missingDownloadCounts()
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, resp)
 	}
+}
+
+func (s *store) missingDownloadCounts() (scoped, unscoped int) {
+	for i := range s.packages {
+		p := &s.packages[i]
+		if p.enriched() {
+			continue
+		}
+		if nameScope(s.strings.str(p.NameID)) != "" {
+			scoped++
+		} else {
+			unscoped++
+		}
+	}
+	return scoped, unscoped
 }
 
 func (s *store) targetByRef(ref string) *targetSummary {

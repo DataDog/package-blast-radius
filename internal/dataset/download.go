@@ -25,6 +25,9 @@ type Options struct {
 	SnapshotDate string
 	// DataDir holds parquet/ and the built database. Empty means "data".
 	DataDir string
+	// DBPath overrides where the DuckDB database is built. Empty derives
+	// <data-dir>/<ecosystem>-deps.duckdb.
+	DBPath string
 	// ParquetDir overrides where shards are read from or written to.
 	ParquetDir string
 	// DatasetID is the BigQuery dataset holding the intermediate table.
@@ -85,6 +88,9 @@ func (o *Options) parquetDir() string {
 }
 
 func (o *Options) dbPath() string {
+	if o.DBPath != "" {
+		return o.DBPath
+	}
 	return filepath.Join(o.DataDir, o.System.DBName())
 }
 

@@ -92,8 +92,8 @@ The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](
 
 > [!TIP]  
 > If you want to test blast-radius on demo data, you can skip to [Step 2](#step-2-analyze-the-data) and use one of the following demo files as an input:
-> - `./demo/chaindrop-worm.json.gz` 
-> - `./demo/axios-compromise.json.gz`
+> - `./demo/chaindrop-worm.json.gz` (dependency snapshot date: 2026-08-03, download counts as of 2026-08-10)
+> - `./demo/axios-compromise.json.gz` (dependency snapshot date: 2026-03-30, download counts as of 2026-08-11)
 
 
 `blast-radius download-data`:

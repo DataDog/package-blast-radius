@@ -482,6 +482,10 @@ func TestAPISummary(t *testing.T) {
 	if got.CombinedWeeklyDownloads == nil || *got.CombinedWeeklyDownloads != 29500 {
 		t.Errorf("combined_weekly_downloads = %v, want 29500", got.CombinedWeeklyDownloads)
 	}
+	if got.MissingDownloadsUnscoped != 1 || got.MissingDownloadsScoped != 0 {
+		t.Errorf("missing download counts = unscoped %d / scoped %d, want 1 / 0",
+			got.MissingDownloadsUnscoped, got.MissingDownloadsScoped)
+	}
 	if got.SourcePath != "report.json" {
 		t.Errorf("source_path = %q", got.SourcePath)
 	}

@@ -24,7 +24,7 @@ dataset and build the indexed DuckDB database that 'analyze' queries.
 
 Runs the whole pipeline: price the query, run it into a temporary BigQuery
 table, extract that table to GCS as parquet, download the shards, and build
-data/<ecosystem>-deps.duckdb from them.
+data/<ecosystem>-deps.duckdb from them, unless --db names another path.
 
 Every billed query is priced with a free dry run and confirmed before it runs,
 and creating a bucket or deleting objects is confirmed too. Nothing costs money
@@ -38,9 +38,10 @@ Examples:
   blast-radius download-data npm --project my-gcp-project
   blast-radius download-data npm --project my-gcp-project --snapshot-date 2026-03-23
   blast-radius download-data npm --project my-gcp-project --bucket gs://my-bucket -y
+  blast-radius download-data npm --project my-gcp-project --db /tmp/npm-deps.duckdb
 
   # Rebuild the database from shards already on disk, with no cloud calls
-  blast-radius download-data npm --build-only --parquet-dir data/parquet`,
+  blast-radius download-data npm --build-only --parquet-dir data/parquet --db /tmp/npm-deps.duckdb`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ecosystem, ok := blast.ParseEcosystem(args[0])
@@ -70,6 +71,7 @@ Examples:
 	cmd.Flags().StringVar(&opts.Bucket, "bucket", "", "GCS bucket for the export (default: gs://<project>-blast-radius, created if missing)")
 	cmd.Flags().StringVar(&opts.SnapshotDate, "snapshot-date", "", "deps.dev snapshot as YYYY-MM-DD (default: discover the latest)")
 	cmd.Flags().StringVar(&opts.DataDir, "data-dir", "data", "directory holding parquet/ and the built database")
+	cmd.Flags().StringVar(&opts.DBPath, "db", "", "where to write the DuckDB database (default: <data-dir>/<ecosystem>-deps.duckdb)")
 	cmd.Flags().StringVar(&opts.ParquetDir, "parquet-dir", "", "where to read or write parquet shards (default: <data-dir>/parquet/<snapshot-date>/)")
 	cmd.Flags().StringVar(&opts.DatasetID, "bq-dataset", "blast_radius", "BigQuery dataset holding the intermediate table")
 	cmd.Flags().BoolVarP(&opts.AutoApprove, "yes", "y", false, "skip the cost and creation confirmations")

@@ -326,6 +326,23 @@ func TestBuildOnlyMakesNoCloudCallsAndKeepsShards(t *testing.T) {
 	}
 }
 
+func TestDownloadBuildsDatabaseAtExplicitPath(t *testing.T) {
+	f := newDownloadFixture(t)
+	f.shardsAfterExport("blast-radius/2026-03-23/", 2)
+	dbPath := filepath.Join(t.TempDir(), "custom", "npm.duckdb")
+
+	if err := f.run(t, "y\ny\n", func(o *Options) { o.DBPath = dbPath }); err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("custom database was not built at %s: %v", dbPath, err)
+	}
+	if _, err := os.Stat(f.dbPath()); !os.IsNotExist(err) {
+		t.Fatalf("default database path exists after --db override: err=%v", err)
+	}
+}
+
 func TestSkipBuildNeverInvokesDuckDB(t *testing.T) {
 	f := newDownloadFixture(t)
 	f.shardsAfterExport("blast-radius/2026-03-23/", 2)
@@ -513,6 +530,21 @@ func TestParquetDirPrefersTheExplicitOverride(t *testing.T) {
 	for _, tt := range tests {
 		if got := tt.opts.parquetDir(); got != tt.want {
 			t.Errorf("parquetDir() = %q, want %q", got, tt.want)
+		}
+	}
+}
+
+func TestDBPathPrefersTheExplicitOverride(t *testing.T) {
+	tests := []struct {
+		opts Options
+		want string
+	}{
+		{Options{System: blast.NPM, DataDir: "data", DBPath: "/tmp/npm.duckdb"}, "/tmp/npm.duckdb"},
+		{Options{System: blast.NPM, DataDir: "data"}, filepath.Join("data", "npm-deps.duckdb")},
+	}
+	for _, tt := range tests {
+		if got := tt.opts.dbPath(); got != tt.want {
+			t.Errorf("dbPath() = %q, want %q", got, tt.want)
 		}
 	}
 }

@@ -188,20 +188,18 @@ function canvasBlob(canvas) {
 export function createCopyButton({ getSource, getContent, background, title = 'Copy as image' }) {
   let timer = null;
 
-  const label = el('span', { class: 'copy__label' }, 'Copy');
   const button = el(
     'button',
-    { class: 'button copy', type: 'button', title, on: { click: run } },
+    { class: 'button copy', type: 'button', title, 'aria-label': title, on: { click: run } },
     icons.copy(),
-    label,
   );
 
   function settle(text, state) {
-    label.textContent = text;
+    button.title = text;
     button.dataset.state = state;
     clearTimeout(timer);
     timer = setTimeout(() => {
-      label.textContent = 'Copy';
+      button.title = title;
       delete button.dataset.state;
     }, RESET_AFTER_MS);
   }
@@ -214,6 +212,40 @@ export function createCopyButton({ getSource, getContent, background, title = 'C
         background: typeof background === 'function' ? background() : background,
         content: getContent?.(),
       });
+      settle('Copied', 'done');
+    } catch (error) {
+      settle('Failed', 'failed');
+      button.title = String(error.message || error);
+    }
+  }
+
+  return button;
+}
+
+export function createTextCopyButton({ getText, title = 'Copy data' }) {
+  let timer = null;
+
+  const button = el(
+    'button',
+    { class: 'button copy', type: 'button', title, 'aria-label': title, on: { click: run } },
+    icons.copy(),
+  );
+
+  function settle(text, state) {
+    button.title = text;
+    button.dataset.state = state;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      button.title = title;
+      delete button.dataset.state;
+    }, RESET_AFTER_MS);
+  }
+
+  async function run() {
+    const text = getText?.();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
       settle('Copied', 'done');
     } catch (error) {
       settle('Failed', 'failed');

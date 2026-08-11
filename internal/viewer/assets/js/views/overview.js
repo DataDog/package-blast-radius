@@ -2,7 +2,7 @@ import * as api from '../api.js';
 import { count, downloads, depthStop, percent, plural } from '../format.js';
 import { el, errorState, loadingState, replace } from '../dom.js';
 import { paretoChart } from '../charts/pareto.js';
-import { createCopyButton, token } from '../charts/copy-image.js';
+import { createCopyButton, createTextCopyButton, token } from '../charts/copy-image.js';
 
 const TOP_TARGETS = 10;
 const TOP_SCOPES = 12;
@@ -155,11 +155,22 @@ function depthBars(summary, onPick) {
       el('span', { class: 'bar-row__value' }, count(value)),
     );
   });
+  const copy = createTextCopyButton({
+    title: 'Copy chart data',
+    getText: () =>
+      ['distance\taffected_packages', ...depths.map((depth) => `${depth}\t${counts[depth]}`)].join('\n'),
+  });
 
   return el(
     'section',
     { class: 'panel panel--fill' },
-    el('div', { class: 'panel__head' }, el('h2', { class: 'eyebrow' }, 'Affected packages by shortest route')),
+    el(
+      'div',
+      { class: 'panel__head' },
+      el('h2', { class: 'eyebrow' }, 'Affected packages by shortest route'),
+      el('span', { class: 'spacer' }),
+      copy,
+    ),
     el(
       'p',
       { class: 'panel__hint' },
@@ -185,11 +196,28 @@ function scopePanel(onPick) {
   const bars = el('div', { class: 'bars' }, loadingState('Grouping affected packages…'));
   const note = el('p', { class: 'panel__note' });
   const more = el('div', { class: 'panel__more' });
+  let latest = null;
+  const copy = createTextCopyButton({
+    title: 'Copy chart data',
+    getText: () => {
+      const scopes = latest?.scopes || [];
+      if (scopes.length === 0) return '';
+      return ['scope\taffected_packages\tvulnerable_versions\tweekly_downloads']
+        .concat(scopes.map((s) => `${s.scope}\t${s.packages}\t${s.versions}\t${s.weekly_downloads ?? ''}`))
+        .join('\n');
+    },
+  });
 
   const panel = el(
     'section',
     { class: 'panel panel--fill' },
-    el('div', { class: 'panel__head' }, el('h2', { class: 'eyebrow' }, 'Affected packages by scope')),
+    el(
+      'div',
+      { class: 'panel__head' },
+      el('h2', { class: 'eyebrow' }, 'Affected packages by scope'),
+      el('span', { class: 'spacer' }),
+      copy,
+    ),
     el(
       'p',
       { class: 'panel__hint' },
@@ -215,7 +243,7 @@ function scopePanel(onPick) {
 
     bars.className = shown.length > SCOPES_BEFORE_SCROLL ? 'bars bars--scroll' : 'bars';
     replace(bars, ...shown.map((entry) => scopeRow(entry, largest, onPick)));
-    replace(note, ...scopeFootnote(response, hidden));
+    replace(note, ...scopeFootnote(response, shown.length, hidden));
 
     if (scopes.length > TOP_SCOPES) {
       replace(
@@ -233,7 +261,7 @@ function scopePanel(onPick) {
               },
             },
           },
-          expanded ? 'Show the largest only' : `Show the ${count(scopes.length)} largest scopes`,
+          expanded ? `Show top ${count(TOP_SCOPES)}` : `Show all ${count(scopes.length)} scopes`,
         ),
       );
     }
@@ -242,6 +270,7 @@ function scopePanel(onPick) {
   api
     .scopes()
     .then((response) => {
+      latest = response;
       // Nothing to compare: a single scope, or a report that is all unscoped
       // packages, is a sentence rather than a chart.
       if ((response.scopes || []).length < 2) panel.hidden = true;
@@ -282,14 +311,14 @@ function scopeRow(entry, largest, onPick) {
  * them under. Said plainly, because a chart of the scoped half reads as the whole
  * blast radius otherwise.
  */
-function scopeFootnote(response, hidden) {
+function scopeFootnote(response, shown, hidden) {
   const unscoped = response.unscoped.packages;
   const total = unscoped + response.scoped_packages;
 
   return [
-    `${plural(response.total_scopes, 'scope')} in total`,
+    `Top ${count(shown)} of ${count(response.total_scopes)} scopes by affected packages`,
     hidden > 0 ? `, ${count(hidden)} not shown` : '',
-    `, holding ${percent((response.scoped_packages / (total || 1)) * 100)} of the affected packages. `,
+    `. Scoped packages hold ${percent((response.scoped_packages / (total || 1)) * 100)} of the affected packages. `,
     unscoped > 0
       ? el(
           'span',
@@ -309,16 +338,33 @@ function scopeFootnote(response, hidden) {
  * enriched, so the top-N is a free query; the panel still renders a loading
  * state first to match the scope and pareto panels.
  */
-function topDownloadsPanel(summary, onPick) {
+function topDownloadsPanel(summary, onPick, onShowAll) {
   if (!summary.enriched || !(summary.combined_weekly_downloads > 0)) return null;
 
   const bars = el('div', { class: 'bars' }, loadingState('Ranking affected packages by downloads…'));
   const note = el('p', { class: 'panel__note' });
+  const more = el('div', { class: 'panel__more' });
+  let latestRows = [];
+  const copy = createTextCopyButton({
+    title: 'Copy chart data',
+    getText: () => {
+      if (latestRows.length === 0) return '';
+      return ['package\tweekly_downloads']
+        .concat(latestRows.map((p) => `${p.name}\t${p.weekly_downloads}`))
+        .join('\n');
+    },
+  });
 
   const panel = el(
     'section',
     { class: 'panel panel--fill' },
-    el('div', { class: 'panel__head' }, el('h2', { class: 'eyebrow' }, 'Most downloaded affected packages')),
+    el(
+      'div',
+      { class: 'panel__head' },
+      el('h2', { class: 'eyebrow' }, 'Most downloaded affected packages'),
+      el('span', { class: 'spacer' }),
+      copy,
+    ),
     el(
       'p',
       { class: 'panel__hint' },
@@ -326,6 +372,7 @@ function topDownloadsPanel(summary, onPick) {
         'Counts are per package, summed across vulnerable versions.',
     ),
     bars,
+    more,
     note,
   );
 
@@ -337,13 +384,38 @@ function topDownloadsPanel(summary, onPick) {
         panel.hidden = true;
         return;
       }
+      latestRows = rows;
       const largest = Math.max(...rows.map((p) => p.weekly_downloads), 1);
       replace(bars, ...rows.map((p) => topDownloadRow(p, largest, onPick)));
-      replace(note, `Top ${rows.length} of ${count(response.total)} affected packages by weekly downloads.`);
+      replace(
+        more,
+        response.total > rows.length && onShowAll
+          ? el(
+              'button',
+              { class: 'about__toggle', type: 'button', on: { click: onShowAll } },
+              `Show all ${count(response.total)} packages`,
+            )
+          : null,
+      );
+      replace(
+        note,
+        `Top ${rows.length} of ${count(response.total)} affected packages by weekly downloads.`,
+        missingDownloadNote(summary),
+      );
     })
     .catch((error) => replace(bars, errorState(error)));
 
   return panel;
+}
+
+function missingDownloadNote(summary) {
+  const scoped = summary.missing_downloads_scoped_packages || 0;
+  const unscoped = summary.missing_downloads_unscoped_packages || 0;
+  if (scoped === 0 && unscoped === 0) return null;
+  return (
+    ' ' +
+    `${count(unscoped)} unscoped and ${count(scoped)} scoped affected packages do not have weekly download count information.`
+  );
 }
 
 function topDownloadRow(pkg, largest, onPick) {
@@ -623,7 +695,11 @@ export function createOverviewView({ summary, router }) {
     { class: 'page' },
     hero(summary),
     stats,
-    topDownloadsPanel(summary, (name) => filterExplore({ search: name })),
+    topDownloadsPanel(
+      summary,
+      (name) => filterExplore({ search: name }),
+      () => filterExplore({ sort: 'weekly_downloads', dir: 'desc' }),
+    ),
     breakdown,
     paretoPanel(summary, (ref) => filterExplore({ target: ref })),
     about(),
