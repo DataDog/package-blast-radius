@@ -125,6 +125,7 @@ async function boot() {
 
   const viewport = el('main', { class: 'view', id: 'view' });
   const detail = createDetailPanel({
+    system: summary.system,
     maxDepth: summary.max_depth,
     onTrace: (name) => {
       detail.close();

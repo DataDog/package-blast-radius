@@ -1,7 +1,7 @@
 import * as api from '../api.js';
 import * as icons from '../icons.js';
 import { el, errorState, loadingState, replace } from '../dom.js';
-import { count, depthStop, downloads, npmURL, plural } from '../format.js';
+import { count, depthStop, downloads, packageURL, plural, registryLabel } from '../format.js';
 
 const VERSIONS_PER_PAGE = 60;
 
@@ -53,7 +53,7 @@ function routeLabel(route) {
   return 'via ' + route.hops.join(' → ');
 }
 
-export function createDetailPanel({ maxDepth, onTrace }) {
+export function createDetailPanel({ system, maxDepth, onTrace }) {
   let scrim = null;
   let drawer = null;
   let returnFocus = null;
@@ -111,7 +111,13 @@ export function createDetailPanel({ maxDepth, onTrace }) {
       traceButton,
       el(
         'a',
-        { class: 'icon-button', href: npmURL(name), target: '_blank', rel: 'noreferrer', title: 'Open on npm' },
+        {
+          class: 'icon-button',
+          href: packageURL(system, name),
+          target: '_blank',
+          rel: 'noreferrer',
+          title: 'Open on ' + registryLabel(system),
+        },
         icons.external(),
       ),
       closeButton,

@@ -255,9 +255,8 @@ func writeGoogleError(w http.ResponseWriter, status int, message, reason string)
 }
 
 // validParquetFixture returns the bytes of a real, tiny parquet file with a
-// superset of the columns buildDatabase's edges and versions tables need
-// (DepName for the edges index, Name+Version for the versions index), so the
-// same fixture can stand in for whichever shard a test downloads.
+// superset of the columns buildDatabase's edges, versions, and downloads tables
+// need, so the same fixture can stand in for whichever shard a test downloads.
 func validParquetFixture(t *testing.T) []byte {
 	t.Helper()
 
@@ -269,8 +268,8 @@ func validParquetFixture(t *testing.T) []byte {
 	defer db.Close()
 
 	stmt := fmt.Sprintf(`
-		CREATE TABLE fixture(Name VARCHAR, Version VARCHAR, DepName VARCHAR, Requirement VARCHAR, PublishedAt TIMESTAMP);
-		INSERT INTO fixture VALUES ('a', '1.0.0', 'axios', '^1.0.0', '2024-01-02 03:04:05');
+		CREATE TABLE fixture(Name VARCHAR, Version VARCHAR, DepName VARCHAR, Requirement VARCHAR, PublishedAt TIMESTAMP, WeeklyDownloads BIGINT, WindowStart DATE, WindowEnd DATE);
+		INSERT INTO fixture VALUES ('a', '1.0.0', 'axios', '^1.0.0', '2024-01-02 03:04:05', 1234, '2026-08-04', '2026-08-10');
 		COPY fixture TO '%s' (FORMAT PARQUET);
 	`, path)
 	if _, err := db.Exec(stmt); err != nil {

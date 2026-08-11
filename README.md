@@ -1,6 +1,6 @@
-# Investigate the blast radius of compromised npm packages
+# Investigate the blast radius of compromised packages
 
-`blast-radius` analyzes the blast radius of a compromised dependency. When a legitimate package gets compromised (for instance, [axios](https://securitylabs.datadoghq.com/articles/axios-npm-supply-chain-compromise/) versions 1.14.1 and 0.30.4), one question is hard to answer: **which npm packages, if installed during the compromise window, would have pulled in the malicious version?**
+`blast-radius` analyzes the blast radius of a compromised dependency. When a legitimate package gets compromised (for instance, [axios](https://securitylabs.datadoghq.com/articles/axios-npm-supply-chain-compromise/) versions 1.14.1 and 0.30.4), one question is hard to answer: **which packages, if installed during the compromise window, could have pulled in the malicious version?**
 
 Give `blast-radius` a package name and version, even a yanked one, and it finds every package whose declared version range could resolve to it. The tool queries a local snapshot of the [deps.dev](https://deps.dev) dependency graph, which Google publishes as a BigQuery public dataset.
 
@@ -62,11 +62,18 @@ Browse the results with:
 
 ## How it works
 
-1. `blast-radius` pulls the [deps.dev BigQuery dataset](https://docs.deps.dev/bigquery/v1/) into local Parquet files and imports them into a single local DuckDB database, containing all npm direct dependency edges (package → dependency + version range).
-2. It queries the database, filtering edges where the declared version range includes the target version (for example, `^1.6.1` matches `1.14.1`).
-3. Optionally, it enriches results with weekly download counts from the npm API (`--enrich-with-download-count`, disabled by default) and compromised-version registry metadata (`--enrich-compromised-package-metadata`, disabled by default).
+1. `blast-radius` pulls the [deps.dev BigQuery dataset](https://docs.deps.dev/bigquery/v1/) into local Parquet files and imports them into a single local DuckDB database, containing direct dependency edges (package -> dependency + version range).
+2. It queries the database, filtering edges where the declared version range includes the target version (for example, npm `^1.6.1` matches `1.14.1`, and PyPI `>=1,<2` matches `1.14.1`).
+3. If the local database has weekly download counts, it applies them offline. PyPI databases can include those counts at ingestion time with `download-data --include-download-counts`. npm counts are optional report-time enrichment from the npm downloads API (`--enrich-with-download-count`). npm compromised-version registry metadata is also available (`--enrich-compromised-package-metadata`, disabled by default).
 
 This works even for **yanked or removed versions**, because `blast-radius` checks the declared range rather than what the registry currently resolves to.
+
+Supported ecosystems:
+
+| ecosystem | CLI name | version rules | notes |
+| --- | --- | --- | --- |
+| npm | `npm` | npm semver ranges | Supports npm download-count enrichment and bundled-dependency handling. |
+| PyPI / pip | `pypi` (`pip` alias) | PEP 440 specifiers | Supports ingestion-time BigQuery download counts; reports resolver-time exposure, not lockfile proof. |
 
 ## Setup
 
@@ -84,7 +91,7 @@ One binary provides all three subcommands:
 | `blast-radius download-data` | export the dependency graph from BigQuery and build the local database |
 | `blast-radius analyze` | compute the blast radius of one or more compromised versions |
 | `blast-radius visualize` | browse a generated JSON report in a local web UI |
-| `blast-radius enrich-download-count` | add npm weekly download counts to a saved report, in place |
+| `blast-radius enrich-download-count` | add weekly download counts to a saved report, in place |
 
 ### Step 1: Get the data
 
@@ -100,7 +107,8 @@ The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](
 - creates a BigQuery table in your Google Cloud project (around 20 GB, expected monthly cost < $1)
 - queries the BigQuery table and exports it (one-time cost ~$10)
 - queries the same BigQuery dataset for each package version's publish date and exports that too (a second, separately-priced query, typically well under $1), which lets `blast-radius` reason about bundled dependencies (see "Bundled npm dependencies" above)
-- exports both as Parquet files into a Google Cloud Storage (GCS) bucket (around 10 GB, expected monthly cost < $1)
+- optionally, for PyPI only, queries `bigquery-public-data.pypi.file_downloads` for the last seven complete days and exports package-level download counts (`--include-download-counts`)
+- exports the tables as Parquet files into a Google Cloud Storage (GCS) bucket (around 10 GB, expected monthly cost < $1)
 - downloads the Parquet files to your machine
 - builds a local DuckDB instance (single, self-contained file) from them
 - removes the Parquet files from your machine
@@ -113,6 +121,9 @@ Usage:
 
 ```bash
 blast-radius download-data npm --project <your-gcp-project>
+
+# or, for PyPI / pip
+blast-radius download-data pypi --project <your-gcp-project> --include-download-counts
 ```
 
 Sample output:
@@ -170,6 +181,11 @@ Sample usage:
 ```bash
 blast-radius analyze npm axios 1.14.1
 
+# PyPI / pip uses PEP 440 version specifiers from package metadata. If the
+# database was built with --include-download-counts, this also ranks by local
+# BigQuery-derived last-week download counts with no registry calls.
+blast-radius analyze pypi requests 2.32.0
+
 # Rank by weekly download counts (slower, might hit rate limits if the result count is high)
 blast-radius analyze npm axios 1.14.1 --enrich-with-download-count
 
@@ -197,6 +213,21 @@ EOF
 blast-radius analyze npm --csv compromised.csv --depth 3
 ```
 
+For PyPI, package names are normalized the same way pip normalizes project
+names: case is ignored, and runs of `_`, `.`, or `-` collapse to `-`.
+
+PyPI results answer whether published package metadata contains a transitive
+path whose specifiers could permit the compromised version. They do not prove
+that every `pip install <package>` deterministically installs that exact
+version: pip's resolver also considers the complete dependency set, Python
+version, platform markers, extras, already installed packages, indexes,
+constraints, and upgrade strategy.
+
+For Poetry and uv, this analysis applies before or during dependency
+resolution. If a project installs from `poetry.lock` or `uv.lock`, the lockfile
+pins transitive dependencies; proving exposure then requires inspecting that
+lockfile or an SBOM, not just package metadata ranges.
+
 Every run writes its full results to `output/<YYYY-MM-DD_HHMMSS>/`.
 
 | file | contents |
@@ -222,9 +253,12 @@ blast-radius enrich-download-count output/2026-08-10_095042 --force
 blast-radius enrich-download-count output/2026-08-10_095042 --rate 1
 ```
 
-The npm downloads API rate-limits per IP, so requests are paced (`--rate`,
-default 2 req/s) and back off together on 429. Without `NPM_TOKEN` the run is
-best-effort and much slower; the command prints a warning.
+The npm downloads API rate-limits per IP, so npm requests are paced (`--rate`,
+default 1 req/s, 4 workers) and back off together on 429. Without `NPM_TOKEN` an
+npm run is best-effort and much slower; the command prints a warning. PyPI
+download counts are not fetched from a registry API; use
+`download-data pypi --include-download-counts` when building a fresh database to
+import last-week counts from BigQuery and keep analysis offline.
 
 ### Step 3: Visualize the data
 
@@ -265,7 +299,7 @@ everything it shows inherits the limitation above. Specifically:
 - Target counts are **attribution** counts. A package attributed to one target
   is not proof that no other target reaches it.
 - Version lists summarise **recorded** versions. They are a sparse set, not a
-  continuous semver range, and versions the traversal did not reach are absent.
+  continuous version range, and versions the traversal did not reach are absent.
 - Combined weekly downloads sums per-package counts, so consumers shared
   between two affected packages are counted twice. A report that was never
   enriched shows "not enriched" rather than 0.

@@ -21,11 +21,13 @@ func main() {
   download-data   export a dependency graph from BigQuery and build the local database
   analyze         compute the blast radius of one or more compromised versions
   visualize       browse a previously generated JSON report in a local web UI
-  enrich-download-count  add npm weekly download counts to a saved report
+  enrich-download-count  add weekly download counts to a saved report
 
 Examples:
   blast-radius download-data npm --project my-gcp-project
+  blast-radius download-data pypi --project my-gcp-project
   blast-radius analyze npm axios 1.14.1
+  blast-radius analyze pypi requests 2.32.0
   blast-radius analyze npm axios 1.14.1 --depth 2 --output json > results.json
   blast-radius visualize results.json`,
 		SilenceUsage: true,
