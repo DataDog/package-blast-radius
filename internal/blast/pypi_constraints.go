@@ -63,6 +63,8 @@ func pypiSpecifier(requirement string) (string, bool) {
 
 func firstPyPIOperator(s string) int {
 	first := -1
+	// PEP 440 version tokens do not contain these operator characters, so the
+	// first operator marks where a full PEP 508 requirement's specifier begins.
 	for _, op := range []string{"===", "~=", "==", "!=", "<=", ">=", "<", ">"} {
 		if i := strings.Index(s, op); i >= 0 && (first == -1 || i < first) {
 			first = i
@@ -79,8 +81,13 @@ func pypiSpecMentionsPrerelease(spec string) bool {
 			continue
 		}
 		version := strings.TrimSpace(part[op:])
+		// Strip at most one operator. The loop is ordered longest-first so
+		// "===" is not mistaken for "==".
 		for _, prefix := range []string{"===", "~=", "==", "!=", "<=", ">=", "<", ">"} {
-			version = strings.TrimPrefix(version, prefix)
+			if strings.HasPrefix(version, prefix) {
+				version = strings.TrimPrefix(version, prefix)
+				break
+			}
 		}
 		version = strings.TrimSpace(strings.TrimSuffix(version, ".*"))
 		if version == "" {

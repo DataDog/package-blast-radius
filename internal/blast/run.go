@@ -224,8 +224,13 @@ func Run(ctx context.Context, opts Options) error {
 			fmt.Fprintf(progress, "Download counts are already available locally; no registry requests needed.\n")
 		} else if !system.SupportsEnrichment() {
 			if system.SupportsDownloadCountDataset() {
-				fmt.Fprintf(progress, "warning: %s download counts are only available from local ingestion; rebuild the database with download-data %s --include-download-counts.\n",
-					system, strings.ToLower(string(system)))
+				if localDownloadsAvailable {
+					fmt.Fprintf(progress, "warning: local %s download counts are missing for %d unique package(s); no registry fallback is available.\n",
+						system, localDownloadsMissing)
+				} else {
+					fmt.Fprintf(progress, "warning: %s download counts are only available from local ingestion; rebuild the database with download-data %s --include-download-counts.\n",
+						system, strings.ToLower(string(system)))
+				}
 			} else {
 				fmt.Fprintf(progress, "warning: download counts are not available for %s\n", system)
 			}

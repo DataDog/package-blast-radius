@@ -101,6 +101,8 @@ The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](
 > If you want to test blast-radius on demo data, you can skip to [Step 2](#step-2-analyze-the-data) and use one of the following demo files as an input:
 > - `./demo/chaindrop-worm.json.gz` (dependency snapshot date: 2026-08-03, download counts as of 2026-08-10)
 > - `./demo/axios-compromise.json.gz` (dependency snapshot date: 2026-03-30, download counts as of 2026-08-11)
+> - `./demo/pypi-litellm-telnyx-compromised-campaign.json.gz` (dependency snapshot date: 2026-03-23, download counts as of 2026-08-11)
+> - `./demo/pypi-mistralai-compromise.json.gz` (dependency snapshot date: 2026-05-11, download counts as of 2026-08-11)
 
 
 `blast-radius download-data`:
@@ -222,6 +224,11 @@ that every `pip install <package>` deterministically installs that exact
 version: pip's resolver also considers the complete dependency set, Python
 version, platform markers, extras, already installed packages, indexes,
 constraints, and upgrade strategy.
+
+For compromised PyPI prerelease versions, `blast-radius` follows pip's default
+behavior and only matches specifiers that explicitly mention prereleases. pip can
+also select a prerelease when no final candidate is available, but this tool
+does not model the full candidate set for every package.
 
 For Poetry and uv, this analysis applies before or during dependency
 resolution. If a project installs from `poetry.lock` or `uv.lock`, the lockfile
