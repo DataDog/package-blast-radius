@@ -4,18 +4,14 @@
 
 Give `blast-radius` a package name and version, even a yanked one, and it finds every package whose declared version range could resolve to it. The tool queries a local snapshot of the [deps.dev](https://deps.dev) dependency graph, which Google publishes as a BigQuery public dataset.
 
-### Dashboard preview
-
-The `blast-radius visualize` web viewer turns a report into an interactive dashboard. Below is a glimpse of the [ChainDrop worm](https://www.itpro.com/security/malware/shai-hulud-here-we-go-again-thousands-of-npm-packages-compromised-in-chaindrop-malware-campaign-where-hackers-taunt-victims) analysis (444 compromised `keyv` packages reaching 42,464 packages) — click any thumbnail for the full view.
-
 <table>
   <tr>
-    <td width="50%" align="center"><a href="demo/dashboard-1.png"><img src="demo/dashboard-1.png" width="400" alt="Overview dashboard"></a><br><sub><b>Overview</b> — blast-radius summary, hops histogram & top scopes</sub></td>
-    <td width="50%" align="center"><a href="demo/dashboard-2.png"><img src="demo/dashboard-2.png" width="400" alt="Explore graph"></a><br><sub><b>Explore</b> — interactive dependency graph around the compromise</sub></td>
+    <td width="50%" align="center"><a href="demo/dashboard-1.png"><img src="demo/dashboard-1.png" width="400" alt="Overview dashboard"></a><br><sub><b>Overview</b>: blast-radius summary, hops histogram & top scopes</sub></td>
+    <td width="50%" align="center"><a href="demo/dashboard-2.png"><img src="demo/dashboard-2.png" width="400" alt="Explore graph"></a><br><sub><b>Explore</b>: interactive dependency graph around the compromise</sub></td>
   </tr>
   <tr>
-    <td width="50%" align="center"><a href="demo/dashboard-3.png"><img src="demo/dashboard-3.png" width="400" alt="Route to compromised package"></a><br><sub><b>Route</b> — path from a package down to the compromised version</sub></td>
-    <td width="50%" align="center"><a href="demo/dashboard-4.png"><img src="demo/dashboard-4.png" width="400" alt="Affected packages table"></a><br><sub><b>Affected packages</b> — searchable table of the full blast radius</sub></td>
+    <td width="50%" align="center"><a href="demo/dashboard-3.png"><img src="demo/dashboard-3.png" width="400" alt="Route to compromised package"></a><br><sub><b>Route</b>: path from a package down to the compromised version</sub></td>
+    <td width="50%" align="center"><a href="demo/dashboard-4.png"><img src="demo/dashboard-4.png" width="400" alt="Affected packages table"></a><br><sub><b>Affected packages</b>: searchable table of the full blast radius</sub></td>
   </tr>
 </table>
 
@@ -68,7 +64,7 @@ Browse the results with:
 
 1. `blast-radius` pulls the [deps.dev BigQuery dataset](https://docs.deps.dev/bigquery/v1/) into local Parquet files and imports them into a single local DuckDB database, containing all npm direct dependency edges (package → dependency + version range).
 2. It queries the database, filtering edges where the declared version range includes the target version (for example, `^1.6.1` matches `1.14.1`).
-3. Optionally, it enriches results with weekly download counts from the npm API (`--enrich-with-download-count`, disabled by default).
+3. Optionally, it enriches results with weekly download counts from the npm API (`--enrich-with-download-count`, disabled by default) and compromised-version registry metadata (`--enrich-compromised-package-metadata`, disabled by default).
 
 This works even for **yanked or removed versions**, because `blast-radius` checks the declared range rather than what the registry currently resolves to.
 
@@ -94,6 +90,12 @@ One binary provides all three subcommands:
 
 The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](https://docs.deps.dev/bigquery/v1/). Download it once with `blast-radius download-data`; you won't need to repeat this for every analysis. It persists around 20 GB of files on your machine, so make sure you have enough disk space available.
 
+> [!TIP]  
+> If you want to test blast-radius on demo data, you can skip to [Step 2](#step-2-analyze-the-data) and use one of the following demo files as an input:
+> - `./demo/chaindrop-worm.json.gz` 
+> - `./demo/axios-compromise.json.gz`
+
+
 `blast-radius download-data`:
 - creates a BigQuery table in your Google Cloud project (around 20 GB, expected monthly cost < $1)
 - queries the BigQuery table and exports it (one-time cost ~$10)
@@ -104,7 +106,9 @@ The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](
 - removes the Parquet files from your machine
 
 
-The command typically takes 20-30 minutes to complete. Usage:
+The command typically takes 20-30 minutes to complete. 
+
+Usage:
 
 
 ```bash
@@ -158,6 +162,7 @@ Next
       blast-radius analyze npm <package> <version>
 ```
 
+
 ### Step 2: Analyze the data
 
 Sample usage:
@@ -168,9 +173,15 @@ blast-radius analyze npm axios 1.14.1
 # Rank by weekly download counts (slower, might hit rate limits if the result count is high)
 blast-radius analyze npm axios 1.14.1 --enrich-with-download-count
 
+# Add npm registry metadata for the compromised version itself. For a removed
+# version, this reports "removed no later than" the package's registry modified
+# timestamp.
+blast-radius analyze npm axios 1.14.1 --enrich-compromised-package-metadata
+
 # Download counts hit the npm registry, which rate-limits per IP behind
-# Cloudflare. Set NPM_TOKEN to lift the unauthenticated limit:
-NPM_TOKEN=$(cat ~/.npm-token) blast-radius analyze npm axios 1.14.1 --enrich-with-download-count
+# Cloudflare. Registry metadata uses the same token when present. Set NPM_TOKEN
+# to lift the unauthenticated limit:
+NPM_TOKEN=$(cat ~/.npm-token) blast-radius analyze npm axios 1.14.1 --enrich-with-download-count --enrich-compromised-package-metadata
 
 # Find transitive dependencies up to a depth of 5
 blast-radius analyze npm axios 1.14.1 --depth 5
@@ -192,7 +203,7 @@ Every run writes its full results to `output/<YYYY-MM-DD_HHMMSS>/`.
 | --- | --- |
 | `blast-radius.json` | the full report |
 | `affected-packages.csv` | `package_name,vulnerable_versions`, one row per unique package |
-| `paths.csv` | one row per affected version, with depth, downloads, target and path |
+| `paths.csv` | one row per affected version, with depth, downloads, target metadata and path |
 
 #### Adding download counts to a saved report
 
