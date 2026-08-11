@@ -267,6 +267,34 @@ func TestComputeBlastRadiusUsesPyPISpecifiers(t *testing.T) {
 	}
 }
 
+func TestComputeBlastRadiusReportsUnparseablePyPISpecifiers(t *testing.T) {
+	target := PackageVersion{System: PyPI, Name: "vulnerable-pkg", Version: "1.0.0"}
+	source := &fakeDependentSource{edges: map[string][]RawDependent{
+		"vulnerable-pkg": {
+			{DependentName: "bad", DependentVersion: "1.0.0", TargetName: "vulnerable-pkg", Requirement: ">=1.0.*"},
+			{DependentName: "miss", DependentVersion: "1.0.0", TargetName: "vulnerable-pkg", Requirement: "<1.0"},
+			{DependentName: "hit", DependentVersion: "1.0.0", TargetName: "vulnerable-pkg", Requirement: ">=1.0"},
+		},
+	}}
+	var progress strings.Builder
+
+	result, err := computeBlastRadius(PyPI, []PackageVersion{target}, 1, source, &progress, time.Now())
+	if err != nil {
+		t.Fatalf("computeBlastRadius: %v", err)
+	}
+
+	affected := affectedByKey(result.Affected)
+	if _, ok := affected["hit@1.0.0"]; !ok {
+		t.Fatalf("Affected = %+v, want hit@1.0.0", result.Affected)
+	}
+	if _, ok := affected["bad@1.0.0"]; ok {
+		t.Fatalf("Affected = %+v, want bad requirement skipped", result.Affected)
+	}
+	if !strings.Contains(progress.String(), "Skipped 1 edge(s) with unparseable PYPI version specifiers.") {
+		t.Fatalf("progress did not report skipped unparseable specifiers:\n%s", progress.String())
+	}
+}
+
 func TestNormalizeTargetSpecsUsesEcosystemRules(t *testing.T) {
 	got := normalizeTargetSpecs(PyPI, []TargetSpec{{Name: "My_Pkg.Name", Versions: []string{"1.0"}}})
 	want := []TargetSpec{{System: PyPI, Name: "my-pkg-name", Versions: []string{"1.0"}}}

@@ -59,6 +59,14 @@ func TestEveryEcosystemIsFullyConfigured(t *testing.T) {
 		if info.matches == nil {
 			t.Errorf("%s has no version matcher", eco)
 		}
+		if info.enrich != nil {
+			if info.enrichRate <= 0 {
+				t.Errorf("%s has an enricher but non-positive default rate %v", eco, info.enrichRate)
+			}
+			if info.enrichWorkers <= 0 {
+				t.Errorf("%s has an enricher but non-positive default workers %d", eco, info.enrichWorkers)
+			}
+		}
 		// A BigQuery export is optional, but half of one produces shards the
 		// duckdb build glob would never find.
 		if (info.bqSystem == "") != (info.parquetPrefix == "") {

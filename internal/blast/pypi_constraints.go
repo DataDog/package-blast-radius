@@ -11,28 +11,35 @@ var pypiSpecifierCache sync.Map // string -> *pep440.Specifiers or nil
 var pypiVersionCache sync.Map   // string -> *pep440.Version or nil
 
 func pypiMatches(requirement, version string) bool {
+	return pypiMatchStatus(requirement, version) == versionMatch
+}
+
+func pypiMatchStatus(requirement, version string) matchStatus {
 	spec, ok := pypiSpecifier(requirement)
 	if !ok {
-		return false
+		return versionInvalidConstraint
+	}
+
+	ss, ok := getCachedPyPISpecifier(spec)
+	if !ok {
+		return versionInvalidConstraint
 	}
 
 	v, ok := getCachedPyPIVersion(version)
 	if !ok {
-		return false
+		return versionNoMatch
 	}
 
 	// Python's default resolver excludes prereleases unless the specifier itself
 	// opts into them. The matcher cannot know the full candidate set, so it uses
 	// the conservative default for compromised prerelease targets.
 	if v.IsPreRelease() && !pypiSpecMentionsPrerelease(spec) {
-		return false
+		return versionNoMatch
 	}
-
-	ss, ok := getCachedPyPISpecifier(spec)
-	if !ok {
-		return false
+	if ss.Check(*v) {
+		return versionMatch
 	}
-	return ss.Check(*v)
+	return versionNoMatch
 }
 
 func pypiSpecifier(requirement string) (string, bool) {
@@ -76,20 +83,14 @@ func firstPyPIOperator(s string) int {
 func pypiSpecMentionsPrerelease(spec string) bool {
 	for _, part := range strings.Split(spec, ",") {
 		part = strings.TrimSpace(part)
-		op := firstPyPIOperator(part)
-		if op < 0 {
+		operator, version, ok := splitPyPIOperator(part)
+		if !ok || operator == "!=" {
 			continue
 		}
-		version := strings.TrimSpace(part[op:])
-		// Strip at most one operator. The loop is ordered longest-first so
-		// "===" is not mistaken for "==".
-		for _, prefix := range []string{"===", "~=", "==", "!=", "<=", ">=", "<", ">"} {
-			if strings.HasPrefix(version, prefix) {
-				version = strings.TrimPrefix(version, prefix)
-				break
-			}
+		if operator == "==" {
+			version = strings.TrimSuffix(version, ".*")
 		}
-		version = strings.TrimSpace(strings.TrimSuffix(version, ".*"))
+		version = strings.TrimSpace(version)
 		if version == "" {
 			continue
 		}
@@ -99,6 +100,15 @@ func pypiSpecMentionsPrerelease(spec string) bool {
 		}
 	}
 	return false
+}
+
+func splitPyPIOperator(part string) (operator, version string, ok bool) {
+	for _, op := range []string{"===", "~=", "==", "!=", "<=", ">=", "<", ">"} {
+		if strings.HasPrefix(part, op) {
+			return op, strings.TrimSpace(strings.TrimPrefix(part, op)), true
+		}
+	}
+	return "", "", false
 }
 
 func getCachedPyPIVersion(s string) (*pep440.Version, bool) {

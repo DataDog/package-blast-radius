@@ -384,6 +384,7 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 	}
 
 	totalEdges := 0
+	skippedUnparseableSpecifiers := 0
 	var allAffected []AffectedPackage
 	visited := make(map[nameVersion]bool)
 
@@ -421,6 +422,7 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 		// re-running semver matching each time. Scoped per depth: the indices point
 		// into frontierByName's slices, rebuilt every iteration.
 		resolvedParent := make(map[matchKey]int)
+		invalidSpecifier := make(map[matchKey]bool)
 
 		var nextFrontier []frontierEntry
 		edges := 0
@@ -446,12 +448,20 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 			if !cached {
 				matched = noMatchingParent
 				for i := range parents {
-					if MatchesVersion(system, dep.Requirement, parents[i].pkg.Version) {
+					status := matchVersionStatus(system, dep.Requirement, parents[i].pkg.Version)
+					if status == versionInvalidConstraint {
+						invalidSpecifier[resolveKey] = true
+						break
+					}
+					if status == versionMatch {
 						matched = i
 						break
 					}
 				}
 				resolvedParent[resolveKey] = matched
+			}
+			if invalidSpecifier[resolveKey] {
+				skippedUnparseableSpecifiers++
 			}
 			if matched == noMatchingParent {
 				return nil
@@ -584,6 +594,9 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 	}
 
 	fmt.Fprintf(progress, "\nTotal: %d affected versions (%d unique packages)\n", len(allAffected), len(uniqueNames))
+	if skippedUnparseableSpecifiers > 0 {
+		fmt.Fprintf(progress, "Skipped %d edge(s) with unparseable %s version specifiers.\n", skippedUnparseableSpecifiers, system)
+	}
 
 	result := &BlastResult{
 		Targets:        expanded,

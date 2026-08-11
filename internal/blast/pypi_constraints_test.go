@@ -38,6 +38,8 @@ func TestPyPIMatches(t *testing.T) {
 		// prerelease/dev release.
 		{">=1.0", "1.1a1", false},
 		{">=1.1a1", "1.1b1", true},
+		{"!=1.0rc1,>=1.0", "1.1a1", false},
+		{"!=1.0rc1,>=1.0a1", "1.1a1", true},
 		{"<2.0", "1.9a1", false},
 		{"<2.0a1", "1.9a1", true},
 
@@ -65,6 +67,24 @@ func TestPyPIMatches(t *testing.T) {
 				t.Errorf("MatchesVersion(PyPI, %q, %q) = %v, want %v", tt.requirement, tt.version, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPyPISpecMentionsPrerelease(t *testing.T) {
+	tests := []struct {
+		spec string
+		want bool
+	}{
+		{">=1.0rc1", true},
+		{"==1.0rc1.*", true},
+		{"!=1.0rc1,>=1.0", false},
+		{">=1.0.*", false},
+	}
+
+	for _, tt := range tests {
+		if got := pypiSpecMentionsPrerelease(tt.spec); got != tt.want {
+			t.Errorf("pypiSpecMentionsPrerelease(%q) = %v, want %v", tt.spec, got, tt.want)
+		}
 	}
 }
 

@@ -133,11 +133,29 @@ func (e Ecosystem) SupportsDatasetDownload() bool {
 // constraint. Unparseable constraints and non-semver versions (git URLs, file
 // paths, ...) return false.
 func MatchesVersion(system Ecosystem, constraint, version string) bool {
+	return matchVersionStatus(system, constraint, version) == versionMatch
+}
+
+type matchStatus int
+
+const (
+	versionNoMatch matchStatus = iota
+	versionMatch
+	versionInvalidConstraint
+)
+
+func matchVersionStatus(system Ecosystem, constraint, version string) matchStatus {
+	if system == PyPI {
+		return pypiMatchStatus(constraint, version)
+	}
 	info, ok := ecosystems[system]
 	if !ok || info.matches == nil {
-		return false
+		return versionNoMatch
 	}
-	return info.matches(constraint, version)
+	if info.matches(constraint, version) {
+		return versionMatch
+	}
+	return versionNoMatch
 }
 
 func NormalizePackageName(system Ecosystem, name string) string {
