@@ -274,7 +274,7 @@ func BlastResultFromJSON(r *JSONResult) (*BlastResult, error) {
 		tName, tVer := splitTargetRef(a.Target)
 		steps := make([]PathStep, len(a.Path))
 		for j, s := range a.Path {
-			steps[j] = PathStep{Package: s.Package, Version: s.Version, Requirement: s.Requirement}
+			steps[j] = PathStep(s)
 		}
 		affected[i] = AffectedPackage{
 			PackageVersion:  PackageVersion{System: system, Name: a.Name, Version: a.Version},
