@@ -41,3 +41,4 @@ jobs:
         uses: dominikh/staticcheck-action@9716614d4101e79b4340dd97b10e54d68234e431 # ratchet:dominikh/staticcheck-action@v1
         with:
           install-go: false
+          version: "v0.7.0"
