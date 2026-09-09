@@ -1,14 +1,15 @@
-cloud.google.com/go/compute/metadata,https://github.com/googleapis/google-cloud-go/blob/compute/metadata/v0.9.0/compute/metadata/LICENSE,Apache-2.0
-github.com/DataDog/package-blast-radius,https://github.com/DataDog/package-blast-radius/blob/HEAD/LICENSE,Apache-2.0
-github.com/duckdb/duckdb-go-bindings,https://github.com/duckdb/duckdb-go-bindings/blob/v0.10505.0/LICENSE,MIT
-github.com/duckdb/duckdb-go-bindings/lib/darwin-arm64,https://github.com/duckdb/duckdb-go-bindings/blob/lib/darwin-arm64/v0.10505.0/lib/darwin-arm64/LICENSE,MIT
-github.com/duckdb/duckdb-go/v2,https://github.com/duckdb/duckdb-go/blob/v2.10505.0/LICENSE,MIT
-github.com/go-viper/mapstructure/v2,https://github.com/go-viper/mapstructure/blob/v2.5.0/LICENSE,MIT
-github.com/google/uuid,https://github.com/google/uuid/blob/v1.6.0/LICENSE,BSD-3-Clause
-github.com/Masterminds/semver/v3,https://github.com/Masterminds/semver/blob/v3.5.0/LICENSE.txt,MIT
-github.com/rodaine/table,https://github.com/rodaine/table/blob/v1.3.1/license,MIT
-github.com/spf13/cobra,https://github.com/spf13/cobra/blob/v1.10.2/LICENSE.txt,Apache-2.0
-github.com/spf13/pflag,https://github.com/spf13/pflag/blob/v1.0.10/LICENSE,BSD-3-Clause
-golang.org/x/oauth2,https://cs.opensource.google/go/x/oauth2/+/v0.36.0:LICENSE,BSD-3-Clause
-golang.org/x/sys/unix,https://cs.opensource.google/go/x/sys/+/v0.47.0:LICENSE,BSD-3-Clause
-golang.org/x/term,https://cs.opensource.google/go/x/term/+/v0.45.0:LICENSE,BSD-3-Clause
+Component,Origin,License,Copyright
+cloud.google.com/go/compute/metadata,https://github.com/googleapis/google-cloud-go/blob/compute/metadata/v0.9.0/compute/metadata/LICENSE,Apache-2.0,Copyright 2014 Google LLC
+github.com/DataDog/package-blast-radius,https://github.com/DataDog/package-blast-radius/blob/HEAD/LICENSE,Apache-2.0,"Copyright 2026 Datadog, Inc."
+github.com/duckdb/duckdb-go-bindings,https://github.com/duckdb/duckdb-go-bindings/blob/v0.10505.0/LICENSE,MIT,Copyright 2018-2026 Stichting DuckDB Foundation
+github.com/duckdb/duckdb-go-bindings/lib/darwin-arm64,https://github.com/duckdb/duckdb-go-bindings/blob/lib/darwin-arm64/v0.10505.0/lib/darwin-arm64/LICENSE,MIT,Copyright 2018-2026 Stichting DuckDB Foundation
+github.com/duckdb/duckdb-go/v2,https://github.com/duckdb/duckdb-go/blob/v2.10505.0/LICENSE,MIT,Copyright 2019-2024 Marc Boeker; Copyright 2025-2026 Stichting DuckDB Foundation
+github.com/go-viper/mapstructure/v2,https://github.com/go-viper/mapstructure/blob/v2.5.0/LICENSE,MIT,Copyright (c) 2013 Mitchell Hashimoto
+github.com/google/uuid,https://github.com/google/uuid/blob/v1.6.0/LICENSE,BSD-3-Clause,"Copyright (c) 2009,2014 Google Inc. All rights reserved."
+github.com/Masterminds/semver/v3,https://github.com/Masterminds/semver/blob/v3.5.0/LICENSE.txt,MIT,"Copyright (C) 2014-2019, Matt Butcher and Matt Farina"
+github.com/rodaine/table,https://github.com/rodaine/table/blob/v1.3.1/license,MIT,Copyright (c) 2015 Chris Roche (rodaine+github@gmail.com)
+github.com/spf13/cobra,https://github.com/spf13/cobra/blob/v1.10.2/LICENSE.txt,Apache-2.0,Copyright 2013-2023 The Cobra Authors
+github.com/spf13/pflag,https://github.com/spf13/pflag/blob/v1.0.10/LICENSE,BSD-3-Clause,Copyright (c) 2012 Alex Ogier. All rights reserved.; Copyright (c) 2012 The Go Authors. All rights reserved.
+golang.org/x/oauth2,https://cs.opensource.google/go/x/oauth2/+/v0.36.0:LICENSE,BSD-3-Clause,Copyright 2009 The Go Authors.
+golang.org/x/sys/unix,https://cs.opensource.google/go/x/sys/+/v0.47.0:LICENSE,BSD-3-Clause,Copyright 2009 The Go Authors.
+golang.org/x/term,https://cs.opensource.google/go/x/term/+/v0.45.0:LICENSE,BSD-3-Clause,Copyright 2009 The Go Authors.
