@@ -75,9 +75,15 @@ This works even for **yanked or removed versions**, because `blast-radius` check
 - Go 1.25+
 - A Google Cloud account, authenticated using `gcloud auth login --update-adc`
 
+### Installation
+
+```bash
+go install github.com/DataDog/package-blast-radius/cmd/blast-radius@latest
+```
+
 ### Overview of the `blast-radius` CLI
 
-One binary provides all three subcommands:
+The `package-blast-radius` provides all three subcommands:
 
 | command | purpose |
 | --- | --- |
@@ -88,7 +94,7 @@ One binary provides all three subcommands:
 
 ### Step 1: Get the data
 
-The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](https://docs.deps.dev/bigquery/v1/). Download it once with `blast-radius download-data`; you won't need to repeat this for every analysis. It persists around 20 GB of files on your machine, so make sure you have enough disk space available.
+The dependency graph snapshot comes from the [deps.dev BigQuery public dataset](https://docs.deps.dev/bigquery/v1/). Download it once with `blast-radius download-data`. You won't need to repeat this for every analysis. It persists around 20 GB of files on your machine.
 
 > [!TIP]  
 > If you want to test blast-radius on demo data, you can skip to [Step 2](#step-2-analyze-the-data) and use one of the following demo files as an input:
