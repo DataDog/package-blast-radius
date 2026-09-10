@@ -3,6 +3,7 @@ package blast
 import (
 	"context"
 	"io"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -18,9 +19,15 @@ const (
 // new one means an entry here plus its matcher and, optionally, an enricher.
 type ecosystemInfo struct {
 	cliName string
+	aliases []string
 	dbName  string
 	matches func(constraint, version string) bool
-	enrich  func(ctx context.Context, affected []AffectedPackage, opts EnrichOptions) error // nil if unsupported
+	// normalizeName canonicalizes user-provided package names before they are
+	// used for graph lookup. nil means package names are already exact.
+	normalizeName func(string) string
+	enrich        func(ctx context.Context, affected []AffectedPackage, opts EnrichOptions) error // nil if unsupported
+	enrichRate    float64
+	enrichWorkers int
 	// bqSystem is the System value in the deps.dev BigQuery dataset. Empty means
 	// no dataset export exists, so 'download-data' rejects the ecosystem.
 	bqSystem string
@@ -29,6 +36,9 @@ type ecosystemInfo struct {
 	// versionsParquetPrefix names the publish-date shards, used to decide whether
 	// a bundled edge predates/postdates a compromise. Empty = no export.
 	versionsParquetPrefix string
+	// downloadsParquetPrefix names package-level weekly download-count shards.
+	// Empty means this ecosystem has no ingestion-time download-count export.
+	downloadsParquetPrefix string
 }
 
 var ecosystems = map[Ecosystem]ecosystemInfo{
@@ -37,9 +47,22 @@ var ecosystems = map[Ecosystem]ecosystemInfo{
 		dbName:                "npm-deps.duckdb",
 		matches:               npmMatches,
 		enrich:                enrichNPMDownloads,
+		enrichRate:            npmEnrichDefaultRate,
+		enrichWorkers:         npmEnrichDefaultWorkers,
 		bqSystem:              "NPM",
 		parquetPrefix:         "npm-edges",
 		versionsParquetPrefix: "npm-versions",
+	},
+	PyPI: {
+		cliName:                "pypi",
+		aliases:                []string{"pip"},
+		dbName:                 "pypi-deps.duckdb",
+		matches:                pypiMatches,
+		normalizeName:          normalizePyPIName,
+		bqSystem:               "PYPI",
+		parquetPrefix:          "pypi-edges",
+		versionsParquetPrefix:  "pypi-versions",
+		downloadsParquetPrefix: "pypi-downloads",
 	},
 }
 
@@ -49,6 +72,11 @@ func ParseEcosystem(s string) (Ecosystem, bool) {
 	for eco, info := range ecosystems {
 		if info.cliName == s {
 			return eco, true
+		}
+		for _, alias := range info.aliases {
+			if alias == s {
+				return eco, true
+			}
 		}
 	}
 	return "", false
@@ -85,6 +113,16 @@ func (e Ecosystem) VersionsParquetPrefix() string {
 	return ecosystems[e].versionsParquetPrefix
 }
 
+// DownloadsParquetPrefix is the basename of package-level weekly download-count
+// shards. Empty means no ingestion-time download-count export is available.
+func (e Ecosystem) DownloadsParquetPrefix() string {
+	return ecosystems[e].downloadsParquetPrefix
+}
+
+func (e Ecosystem) SupportsDownloadCountDataset() bool {
+	return ecosystems[e].downloadsParquetPrefix != ""
+}
+
 // SupportsDatasetDownload reports whether the dependency graph for this
 // ecosystem can be exported from the deps.dev BigQuery dataset.
 func (e Ecosystem) SupportsDatasetDownload() bool {
@@ -95,11 +133,37 @@ func (e Ecosystem) SupportsDatasetDownload() bool {
 // constraint. Unparseable constraints and non-semver versions (git URLs, file
 // paths, ...) return false.
 func MatchesVersion(system Ecosystem, constraint, version string) bool {
+	return matchVersionStatus(system, constraint, version) == versionMatch
+}
+
+type matchStatus int
+
+const (
+	versionNoMatch matchStatus = iota
+	versionMatch
+	versionInvalidConstraint
+)
+
+func matchVersionStatus(system Ecosystem, constraint, version string) matchStatus {
+	if system == PyPI {
+		return pypiMatchStatus(constraint, version)
+	}
 	info, ok := ecosystems[system]
 	if !ok || info.matches == nil {
-		return false
+		return versionNoMatch
 	}
-	return info.matches(constraint, version)
+	if info.matches(constraint, version) {
+		return versionMatch
+	}
+	return versionNoMatch
+}
+
+func NormalizePackageName(system Ecosystem, name string) string {
+	info, ok := ecosystems[system]
+	if !ok || info.normalizeName == nil {
+		return name
+	}
+	return info.normalizeName(name)
 }
 
 // SupportsEnrichment reports whether download counts can be fetched for this ecosystem.
@@ -146,4 +210,18 @@ func Enrich(ctx context.Context, system Ecosystem, affected []AffectedPackage, o
 		return nil
 	}
 	return info.enrich(ctx, affected, opts)
+}
+
+func (e Ecosystem) DefaultEnrichRate() float64 {
+	return ecosystems[e].enrichRate
+}
+
+func (e Ecosystem) DefaultEnrichWorkers() int {
+	return ecosystems[e].enrichWorkers
+}
+
+var pypiNameNormalizer = regexp.MustCompile(`[-_.]+`)
+
+func normalizePyPIName(name string) string {
+	return pypiNameNormalizer.ReplaceAllString(strings.ToLower(strings.TrimSpace(name)), "-")
 }

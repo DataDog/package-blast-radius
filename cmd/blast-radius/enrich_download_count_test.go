@@ -5,7 +5,48 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/DataDog/package-blast-radius/internal/blast"
 )
+
+func TestEffectiveEnrichSettingsUsesEcosystemDefaults(t *testing.T) {
+	tests := []struct {
+		name           string
+		system         blast.Ecosystem
+		rate           float64
+		rateChanged    bool
+		workers        int
+		workersChanged bool
+		wantRate       float64
+		wantWorkers    int
+	}{
+		{
+			name:        "npm defaults",
+			system:      blast.NPM,
+			wantRate:    1.0,
+			wantWorkers: 4,
+		},
+		{
+			name:           "explicit values win",
+			system:         blast.NPM,
+			rate:           1.0,
+			rateChanged:    true,
+			workers:        3,
+			workersChanged: true,
+			wantRate:       1.0,
+			wantWorkers:    3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotRate, gotWorkers := effectiveEnrichSettings(tt.system, tt.rate, tt.rateChanged, tt.workers, tt.workersChanged)
+			if gotRate != tt.wantRate || gotWorkers != tt.wantWorkers {
+				t.Fatalf("effectiveEnrichSettings() = (%v, %d), want (%v, %d)", gotRate, gotWorkers, tt.wantRate, tt.wantWorkers)
+			}
+		})
+	}
+}
 
 func TestDownloadCountCacheRoundTripsCountsAndNoData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), downloadCountCacheArtifact)

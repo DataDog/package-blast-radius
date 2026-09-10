@@ -14,7 +14,7 @@
 import * as api from './api.js';
 import * as icons from './icons.js';
 import { debounce, el, replace } from './dom.js';
-import { downloads, npmURL, plural, targetName } from './format.js';
+import { downloads, packageURL, plural, registryLabel, targetName } from './format.js';
 
 const MATCH_LIMIT = 6;
 
@@ -213,11 +213,11 @@ export function createPalette({ summary, router, detail }) {
 
     actions.push({
       icon: icons.external,
-      title: 'Open on npm',
+      title: 'Open on ' + registryLabel(summary.system),
       quoted: term,
-      meta: 'npmjs.com',
+      meta: registryHost(summary.system),
       hint: 'new tab',
-      run: () => window.open(npmURL(term), '_blank', 'noreferrer'),
+      run: () => window.open(packageURL(summary.system, term), '_blank', 'noreferrer'),
     });
 
     out.push({ label: 'Search options', items: actions });
@@ -363,6 +363,16 @@ export function createPalette({ summary, router, detail }) {
   }
 
   return { open, close, isOpen, toggle: (initial) => (isOpen() ? close() : open(initial)) };
+}
+
+function registryHost(system) {
+  switch ((system || '').toUpperCase()) {
+    case 'PYPI':
+      return 'pypi.org';
+    case 'NPM':
+    default:
+      return 'npmjs.com';
+  }
 }
 
 function key(label) {

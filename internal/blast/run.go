@@ -41,6 +41,10 @@ type dependentSource interface {
 	QueryPublishedAt([]PackageVersion) (map[string]time.Time, error)
 }
 
+type weeklyDownloadSource interface {
+	QueryWeeklyDownloads([]string) (map[string]int64, error)
+}
+
 // parseBundledName splits deps.dev's synthetic bundled-node name, e.g.
 // "cloudstructs>0.6.11>@types/keyv", into the bundling root and the version it
 // bundled. Real npm names never contain '>', so three '>'-separated parts is
@@ -101,7 +105,7 @@ func ParseCompromisedCSV(path string, system Ecosystem) ([]TargetSpec, error) {
 		}
 		isFirstRecord = false
 
-		name := strings.TrimSpace(parts[0])
+		name := NormalizePackageName(system, strings.TrimSpace(parts[0]))
 		if name == "" {
 			return nil, fmt.Errorf("line %d: empty package name", lineNum)
 		}
@@ -177,15 +181,16 @@ func Run(ctx context.Context, opts Options) error {
 	system := opts.System
 	maxDepth := opts.MaxDepth
 
-	expanded := expandTargets(system, opts.Targets)
+	targets := normalizeTargetSpecs(system, opts.Targets)
+	expanded := expandTargets(system, targets)
 
-	if len(opts.Targets) == 1 {
-		t := opts.Targets[0]
+	if len(targets) == 1 {
+		t := targets[0]
 		fmt.Fprintf(progress, "Computing blast radius for %s@%s (%s), depth=%d\n\n",
 			t.Name, strings.Join(t.Versions, ","), system, maxDepth)
 	} else {
 		fmt.Fprintf(progress, "Computing blast radius for %d compromised packages (%d versions total, %s), depth=%d\n\n",
-			len(opts.Targets), len(expanded), system, maxDepth)
+			len(targets), len(expanded), system, maxDepth)
 	}
 
 	resolvedDB, err := findDB(opts.DBPath, system)
@@ -205,23 +210,46 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	localDownloadsAvailable, localDownloadsMissing, err := applyLocalDownloadCounts(source, result.Affected)
+	if err != nil {
+		fmt.Fprintf(progress, "warning: local download counts could not be read: %v\n", err)
+	}
+	if localDownloadsAvailable {
+		resolved := result.UniquePackages - localDownloadsMissing
+		fmt.Fprintf(progress, "Applied local download counts for %d/%d unique packages.\n", resolved, result.UniquePackages)
+	}
+
 	if opts.EnrichDownloads && len(result.Affected) > 0 {
-		if !system.SupportsEnrichment() {
-			fmt.Fprintf(progress, "warning: download counts are not available for %s\n", system)
+		if localDownloadsAvailable && localDownloadsMissing == 0 {
+			fmt.Fprintf(progress, "Download counts are already available locally; no registry requests needed.\n")
+		} else if !system.SupportsEnrichment() {
+			if system.SupportsDownloadCountDataset() {
+				if localDownloadsAvailable {
+					fmt.Fprintf(progress, "warning: local %s download counts are missing for %d unique package(s); no registry fallback is available.\n",
+						system, localDownloadsMissing)
+				} else {
+					fmt.Fprintf(progress, "warning: %s download counts are only available from local ingestion; rebuild the database with download-data %s --include-download-counts.\n",
+						system, strings.ToLower(string(system)))
+				}
+			} else {
+				fmt.Fprintf(progress, "warning: download counts are not available for %s\n", system)
+			}
 		} else {
 			if system == NPM && npmAuthToken == "" {
 				fmt.Fprintf(progress, "warning: NPM_TOKEN is not set; the npm downloads API will heavily rate-limit unauthenticated requests. Set NPM_TOKEN to lift it.\n")
 			}
-			fmt.Fprintf(progress, "Enriching %d unique packages with download counts...\n", result.UniquePackages)
-			if err := Enrich(ctx, system, result.Affected, EnrichOptions{
-				Workers:                4,
-				Rate:                   npmEnrichDefaultRate,
+			toEnrich := packagesMissingDownloadCounts(result.Affected)
+			fmt.Fprintf(progress, "Enriching %d unique packages with download counts...\n", len(toEnrich))
+			if err := Enrich(ctx, system, toEnrich, EnrichOptions{
+				Workers:                system.DefaultEnrichWorkers(),
+				Rate:                   system.DefaultEnrichRate(),
 				Progress:               progress,
 				IncludeScopedPackages:  opts.EnrichScopedPackages,
 				ScopedPackageOptInFlag: "--enrich-scoped-packages",
 			}); err != nil {
 				fmt.Fprintf(progress, "warning: %v\n", err)
 			}
+			applyResolvedDownloadCounts(result.Affected, toEnrich)
 		}
 	}
 	result.Elapsed = time.Since(start)
@@ -237,6 +265,80 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
+func applyLocalDownloadCounts(source dependentSource, affected []AffectedPackage) (available bool, missing int, err error) {
+	downloadSource, ok := source.(weeklyDownloadSource)
+	if !ok || len(affected) == 0 {
+		return false, 0, nil
+	}
+
+	names := uniqueAffectedNames(affected)
+	counts, err := downloadSource.QueryWeeklyDownloads(names)
+	if err != nil {
+		return false, 0, err
+	}
+	if counts == nil {
+		return false, 0, nil
+	}
+
+	for i := range affected {
+		if downloads, ok := counts[affected[i].Name]; ok {
+			affected[i].WeeklyDownloads = downloads
+		}
+	}
+	for _, name := range names {
+		if _, ok := counts[name]; !ok {
+			missing++
+		}
+	}
+	return true, missing, nil
+}
+
+func uniqueAffectedNames(affected []AffectedPackage) []string {
+	seen := make(map[string]struct{})
+	names := make([]string, 0, len(affected))
+	for _, a := range affected {
+		if _, ok := seen[a.Name]; ok {
+			continue
+		}
+		seen[a.Name] = struct{}{}
+		names = append(names, a.Name)
+	}
+	return names
+}
+
+func packagesMissingDownloadCounts(affected []AffectedPackage) []AffectedPackage {
+	seen := make(map[string]struct{})
+	var out []AffectedPackage
+	for _, a := range affected {
+		if a.WeeklyDownloads >= 0 {
+			continue
+		}
+		if _, ok := seen[a.Name]; ok {
+			continue
+		}
+		seen[a.Name] = struct{}{}
+		out = append(out, AffectedPackage{
+			PackageVersion:  PackageVersion{System: a.System, Name: a.Name},
+			WeeklyDownloads: -1,
+		})
+	}
+	return out
+}
+
+func applyResolvedDownloadCounts(affected, enriched []AffectedPackage) {
+	counts := make(map[string]int64)
+	for _, a := range enriched {
+		if a.WeeklyDownloads >= 0 {
+			counts[a.Name] = a.WeeklyDownloads
+		}
+	}
+	for i := range affected {
+		if downloads, ok := counts[affected[i].Name]; ok {
+			affected[i].WeeklyDownloads = downloads
+		}
+	}
+}
+
 func expandTargets(system Ecosystem, targets []TargetSpec) []PackageVersion {
 	var expanded []PackageVersion
 	for _, t := range targets {
@@ -245,6 +347,16 @@ func expandTargets(system Ecosystem, targets []TargetSpec) []PackageVersion {
 		}
 	}
 	return expanded
+}
+
+func normalizeTargetSpecs(system Ecosystem, targets []TargetSpec) []TargetSpec {
+	out := make([]TargetSpec, len(targets))
+	for i, t := range targets {
+		out[i] = t
+		out[i].System = system
+		out[i].Name = NormalizePackageName(system, t.Name)
+	}
+	return out
 }
 
 // matchKey identifies a declared dependency on a frontier package: the same
@@ -272,6 +384,7 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 	}
 
 	totalEdges := 0
+	skippedUnparseableSpecifiers := 0
 	var allAffected []AffectedPackage
 	visited := make(map[nameVersion]bool)
 
@@ -309,6 +422,7 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 		// re-running semver matching each time. Scoped per depth: the indices point
 		// into frontierByName's slices, rebuilt every iteration.
 		resolvedParent := make(map[matchKey]int)
+		invalidSpecifier := make(map[matchKey]bool)
 
 		var nextFrontier []frontierEntry
 		edges := 0
@@ -334,29 +448,40 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 			if !cached {
 				matched = noMatchingParent
 				for i := range parents {
-					if MatchesVersion(system, dep.Requirement, parents[i].pkg.Version) {
+					status := matchVersionStatus(system, dep.Requirement, parents[i].pkg.Version)
+					if status == versionInvalidConstraint {
+						invalidSpecifier[resolveKey] = true
+						break
+					}
+					if status == versionMatch {
 						matched = i
 						break
 					}
 				}
 				resolvedParent[resolveKey] = matched
 			}
+			if invalidSpecifier[resolveKey] {
+				skippedUnparseableSpecifiers++
+			}
 			if matched == noMatchingParent {
 				return nil
 			}
 			matchedParent := &parents[matched]
 
-			if rootName, rootVersion, ok := parseBundledName(dep.DependentName); ok {
-				root := PackageVersion{System: system, Name: rootName, Version: rootVersion}
-				nvKey := nameVersion{rootName, rootVersion}
-				if visited[nvKey] || bundledSeen[nvKey] {
+			if system == NPM {
+				rootName, rootVersion, ok := parseBundledName(dep.DependentName)
+				if ok {
+					root := PackageVersion{System: system, Name: rootName, Version: rootVersion}
+					nvKey := nameVersion{rootName, rootVersion}
+					if visited[nvKey] || bundledSeen[nvKey] {
+						return nil
+					}
+					bundledSeen[nvKey] = true
+					bundledCandidates = append(bundledCandidates, bundledCandidate{
+						root: root, matchedParent: *matchedParent,
+					})
 					return nil
 				}
-				bundledSeen[nvKey] = true
-				bundledCandidates = append(bundledCandidates, bundledCandidate{
-					root: root, matchedParent: *matchedParent,
-				})
-				return nil
 			}
 
 			key := nameVersion{dep.DependentName, dep.DependentVersion}
@@ -469,6 +594,9 @@ func computeBlastRadius(system Ecosystem, expanded []PackageVersion, maxDepth in
 	}
 
 	fmt.Fprintf(progress, "\nTotal: %d affected versions (%d unique packages)\n", len(allAffected), len(uniqueNames))
+	if skippedUnparseableSpecifiers > 0 {
+		fmt.Fprintf(progress, "Skipped %d edge(s) with unparseable %s version specifiers.\n", skippedUnparseableSpecifiers, system)
+	}
 
 	result := &BlastResult{
 		Targets:        expanded,

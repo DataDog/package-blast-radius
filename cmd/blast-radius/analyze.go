@@ -39,14 +39,21 @@ that version has been yanked from the registry.
 Uses a local DuckDB snapshot of the deps.dev dependency graph for fast,
 offline reverse dependency lookup with version range matching.
 
-Runs fully offline by default. Pass --enrich-with-download-count to look up
-weekly download counts from the registry, which ranks results by real-world
-impact at the cost of several minutes and a lot of API calls. npm cannot bulk
-fetch scoped package counts, so large scoped tails are skipped unless
+Runs fully offline by default. If the local database has download counts
+(currently PyPI databases built with download-data --include-download-counts),
+they are applied automatically. For npm, pass --enrich-with-download-count to
+look up weekly download counts from the npm downloads API, which ranks results
+by real-world impact at the cost of several minutes and API calls. npm cannot
+bulk fetch scoped package counts, so large scoped tails are skipped unless
 --enrich-scoped-packages is set. The npm downloads API rate-limits per IP behind
 Cloudflare; set the NPM_TOKEN environment variable to lift the unauthenticated
 limit, or use 'blast-radius enrich-download-count' to add counts to a saved
 report after the fact.
+
+For PyPI / pip, results are resolver-time exposure: published package metadata
+has a transitive path whose PEP 440 specifiers could permit the compromised
+version. Lockfile-backed installs such as Poetry or uv need lockfile/SBOM
+inspection to prove the exact installed transitive versions.
 
 Every run saves its results to output/<timestamp>/:
   blast-radius.json      full report, the input to 'blast-radius visualize'
@@ -55,8 +62,10 @@ Every run saves its results to output/<timestamp>/:
 
 Examples:
   blast-radius analyze npm axios 1.14.1
+  blast-radius analyze pypi requests 2.32.0
   blast-radius analyze npm axios 1.14.1 --enrich-with-download-count
   blast-radius analyze npm axios --versions 1.14.1,0.30.1
+  blast-radius analyze pip requests --versions 2.32.0,2.32.1
   blast-radius analyze npm axios 1.14.1 --depth 2
   blast-radius analyze npm axios 1.14.1 --top 100 --output json
   blast-radius analyze npm --csv compromised.csv --depth 3
@@ -139,7 +148,7 @@ results can be the next run's targets.`,
 
 	cmd.Flags().StringVar(&output, "output", "table", "output format: table, json, csv")
 	cmd.Flags().StringVar(&dbPath, "db", "", "path to DuckDB database (default: look for <ecosystem>-deps.duckdb in current dir, ./data/, or ~/.blast-radius/)")
-	cmd.Flags().BoolVar(&enrichDownloads, "enrich-with-download-count", false, "look up weekly download counts from the registry and rank results by them (slow, requires network)")
+	cmd.Flags().BoolVar(&enrichDownloads, "enrich-with-download-count", false, "for npm, look up weekly download counts from the registry and rank results by them (slow, requires network)")
 	cmd.Flags().BoolVar(&enrichScoped, "enrich-scoped-packages", false, "with --enrich-with-download-count, include scoped packages even when npm requires slow one-by-one lookups")
 	cmd.Flags().IntVar(&top, "top", 50, "number of results to display in table mode (0 = all)")
 	cmd.Flags().IntVar(&depth, "depth", 1, "max dependency depth (1 = direct only, 2+ = transitive)")

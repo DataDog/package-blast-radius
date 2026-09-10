@@ -25,6 +25,8 @@ import (
 // the starting point. Overridable via the --rate flag on `enrich-download-count`.
 const npmEnrichDefaultRate = 1.0
 
+const npmEnrichDefaultWorkers = 4
+
 // NPMScopedPackageDefaultThreshold is the number of scoped packages we enrich
 // exactly by default. Above this, callers need to opt in because npm cannot
 // bulk-fetch scoped package download counts.

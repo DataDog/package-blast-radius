@@ -42,8 +42,24 @@ export function depthStop(depth, maxDepth = 6) {
   return String(Math.min(Math.max(stop, 1), 6));
 }
 
-export function npmURL(name) {
-  return 'https://www.npmjs.com/package/' + name.split('/').map(encodeURIComponent).join('/');
+export function packageURL(system, name) {
+  switch ((system || '').toUpperCase()) {
+    case 'PYPI':
+      return 'https://pypi.org/project/' + encodeURIComponent(name) + '/';
+    case 'NPM':
+    default:
+      return 'https://www.npmjs.com/package/' + name.split('/').map(encodeURIComponent).join('/');
+  }
+}
+
+export function registryLabel(system) {
+  switch ((system || '').toUpperCase()) {
+    case 'PYPI':
+      return 'PyPI';
+    case 'NPM':
+    default:
+      return 'npm';
+  }
 }
 
 /** "axios@1.14.1" -> "axios". Scoped names start with @, so split on the last. */

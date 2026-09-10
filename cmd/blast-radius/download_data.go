@@ -26,6 +26,9 @@ Runs the whole pipeline: price the query, run it into a temporary BigQuery
 table, extract that table to GCS as parquet, download the shards, and build
 data/<ecosystem>-deps.duckdb from them, unless --db names another path.
 
+For PyPI, pass --include-download-counts to add package-level weekly download
+counts from bigquery-public-data.pypi.file_downloads to the local database.
+
 Every billed query is priced with a free dry run and confirmed before it runs,
 and creating a bucket or deleting objects is confirmed too. Nothing costs money
 or changes cloud state without an explicit yes. Pass --yes to skip the prompts
@@ -36,12 +39,13 @@ or from GOOGLE_APPLICATION_CREDENTIALS pointing at a service account key.
 
 Examples:
   blast-radius download-data npm --project my-gcp-project
+  blast-radius download-data pypi --project my-gcp-project --include-download-counts
   blast-radius download-data npm --project my-gcp-project --snapshot-date 2026-03-23
   blast-radius download-data npm --project my-gcp-project --bucket gs://my-bucket -y
   blast-radius download-data npm --project my-gcp-project --db /tmp/npm-deps.duckdb
 
   # Rebuild the database from shards already on disk, with no cloud calls
-  blast-radius download-data npm --build-only --parquet-dir data/parquet --db /tmp/npm-deps.duckdb`,
+  blast-radius download-data pypi --build-only --parquet-dir data/parquet --db /tmp/pypi-deps.duckdb`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ecosystem, ok := blast.ParseEcosystem(args[0])
@@ -79,6 +83,7 @@ Examples:
 	cmd.Flags().BoolVar(&opts.KeepParquet, "keep-parquet", false, "keep the parquet shards after building the database")
 	cmd.Flags().BoolVar(&opts.BuildOnly, "build-only", false, "build the database from local parquet shards, making no cloud calls")
 	cmd.Flags().BoolVar(&opts.SkipBuild, "skip-build", false, "download the shards but do not build the database")
+	cmd.Flags().BoolVar(&opts.IncludeDownloadCounts, "include-download-counts", false, "for PyPI, include weekly download counts in the built database")
 
 	return cmd
 }

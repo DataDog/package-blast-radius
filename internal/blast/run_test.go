@@ -239,6 +239,70 @@ func TestComputeBlastRadiusAttributesTiesToTheFirstMatchingTarget(t *testing.T) 
 	}
 }
 
+func TestComputeBlastRadiusUsesPyPISpecifiers(t *testing.T) {
+	target := PackageVersion{System: PyPI, Name: "vulnerable-pkg", Version: "2.1.0"}
+	source := &fakeDependentSource{edges: map[string][]RawDependent{
+		"vulnerable-pkg": {
+			{DependentName: "direct", DependentVersion: "1.0.0", TargetName: "vulnerable-pkg", Requirement: ">=2,<3 ; python_version >= '3.10'"},
+			{DependentName: "ignored", DependentVersion: "1.0.0", TargetName: "vulnerable-pkg", Requirement: "<2"},
+		},
+		"direct": {
+			{DependentName: "consumer", DependentVersion: "4.0.0", TargetName: "direct", Requirement: "~=1.0"},
+		},
+	}}
+
+	result, err := computeBlastRadius(PyPI, []PackageVersion{target}, 2, source, io.Discard, time.Now())
+	if err != nil {
+		t.Fatalf("computeBlastRadius: %v", err)
+	}
+
+	affected := affectedByKey(result.Affected)
+	for _, key := range []string{"direct@1.0.0", "consumer@4.0.0"} {
+		if _, ok := affected[key]; !ok {
+			t.Errorf("missing affected package %s in %+v", key, result.Affected)
+		}
+	}
+	if _, ok := affected["ignored@1.0.0"]; ok {
+		t.Errorf("unexpected affected package in %+v", result.Affected)
+	}
+}
+
+func TestComputeBlastRadiusReportsUnparseablePyPISpecifiers(t *testing.T) {
+	target := PackageVersion{System: PyPI, Name: "vulnerable-pkg", Version: "1.0.0"}
+	source := &fakeDependentSource{edges: map[string][]RawDependent{
+		"vulnerable-pkg": {
+			{DependentName: "bad", DependentVersion: "1.0.0", TargetName: "vulnerable-pkg", Requirement: ">=1.0.*"},
+			{DependentName: "miss", DependentVersion: "1.0.0", TargetName: "vulnerable-pkg", Requirement: "<1.0"},
+			{DependentName: "hit", DependentVersion: "1.0.0", TargetName: "vulnerable-pkg", Requirement: ">=1.0"},
+		},
+	}}
+	var progress strings.Builder
+
+	result, err := computeBlastRadius(PyPI, []PackageVersion{target}, 1, source, &progress, time.Now())
+	if err != nil {
+		t.Fatalf("computeBlastRadius: %v", err)
+	}
+
+	affected := affectedByKey(result.Affected)
+	if _, ok := affected["hit@1.0.0"]; !ok {
+		t.Fatalf("Affected = %+v, want hit@1.0.0", result.Affected)
+	}
+	if _, ok := affected["bad@1.0.0"]; ok {
+		t.Fatalf("Affected = %+v, want bad requirement skipped", result.Affected)
+	}
+	if !strings.Contains(progress.String(), "Skipped 1 edge(s) with unparseable PYPI version specifiers.") {
+		t.Fatalf("progress did not report skipped unparseable specifiers:\n%s", progress.String())
+	}
+}
+
+func TestNormalizeTargetSpecsUsesEcosystemRules(t *testing.T) {
+	got := normalizeTargetSpecs(PyPI, []TargetSpec{{Name: "My_Pkg.Name", Versions: []string{"1.0"}}})
+	want := []TargetSpec{{System: PyPI, Name: "my-pkg-name", Versions: []string{"1.0"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("normalizeTargetSpecs = %+v, want %+v", got, want)
+	}
+}
+
 func TestComputeBlastRadiusExcludesABundleThatPredatesTheCompromise(t *testing.T) {
 	target := PackageVersion{System: NPM, Name: "vulnerable", Version: "1.2.3"}
 	source := &fakeDependentSource{
@@ -381,11 +445,40 @@ func TestComputeBlastRadiusIncludesABundleWithNoKnownPublishDate(t *testing.T) {
 	}
 }
 
+func TestApplyLocalDownloadCounts(t *testing.T) {
+	affected := []AffectedPackage{
+		{PackageVersion: PackageVersion{System: PyPI, Name: "requests", Version: "1.0.0"}, WeeklyDownloads: -1},
+		{PackageVersion: PackageVersion{System: PyPI, Name: "requests", Version: "1.0.1"}, WeeklyDownloads: -1},
+		{PackageVersion: PackageVersion{System: PyPI, Name: "missing", Version: "2.0.0"}, WeeklyDownloads: -1},
+	}
+	source := &fakeDependentSource{weeklyDownloads: map[string]int64{"requests": 1234}}
+
+	available, missing, err := applyLocalDownloadCounts(source, affected)
+	if err != nil {
+		t.Fatalf("applyLocalDownloadCounts: %v", err)
+	}
+	if !available {
+		t.Fatal("local download counts were reported unavailable")
+	}
+	if missing != 1 {
+		t.Fatalf("missing = %d, want 1", missing)
+	}
+	for _, a := range affected[:2] {
+		if a.WeeklyDownloads != 1234 {
+			t.Errorf("%s downloads = %d, want 1234", a.String(), a.WeeklyDownloads)
+		}
+	}
+	if affected[2].WeeklyDownloads != -1 {
+		t.Errorf("missing package downloads = %d, want -1", affected[2].WeeklyDownloads)
+	}
+}
+
 type fakeDependentSource struct {
-	edges         map[string][]RawDependent
-	directQueries []string
-	multiQueries  [][]string
-	publishedAt   map[string]time.Time
+	edges           map[string][]RawDependent
+	directQueries   []string
+	multiQueries    [][]string
+	publishedAt     map[string]time.Time
+	weeklyDownloads map[string]int64
 }
 
 func (f *fakeDependentSource) QueryDirectDependents(name string, yield func(RawDependent) error) error {
@@ -411,6 +504,19 @@ func (f *fakeDependentSource) QueryPublishedAt(pkgs []PackageVersion) (map[strin
 	for _, pv := range pkgs {
 		if t, ok := f.publishedAt[pv.String()]; ok {
 			out[pv.String()] = t
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeDependentSource) QueryWeeklyDownloads(names []string) (map[string]int64, error) {
+	if f.weeklyDownloads == nil {
+		return nil, nil
+	}
+	out := make(map[string]int64)
+	for _, name := range names {
+		if downloads, ok := f.weeklyDownloads[name]; ok {
+			out[name] = downloads
 		}
 	}
 	return out, nil
