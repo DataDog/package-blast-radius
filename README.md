@@ -300,3 +300,8 @@ For example, `cloudstructs@0.6.11` was published on 2022-11-01, and `keyv@6.0.0`
 This check only proves whether the compromised target version existed yet when the bundling root was published. It does not reconstruct the exact frozen tree. Treat bundled rows as candidates, not certainties, and verify them against the published tarball when exact attribution matters.
 
 Publish dates come from the optional `PackageVersions` export in `blast-radius download-data`. Older databases without that table keep every bundled candidate, since their publish dates are unknown.
+
+## Acknowledgements
+
+* Based on an original idea and proof of concept from Simon Maréchal.
+* Current author and maintainer: Christophe Tafani-Dereeper.
