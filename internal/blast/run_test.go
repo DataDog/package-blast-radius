@@ -45,6 +45,60 @@ lodash;4.17.20
 	}
 }
 
+func TestParseCompromisedCSVAcceptsWildcardVersion(t *testing.T) {
+	got, err := ParseCompromisedCSV(writeCSV(t, "malicious-package;*\n"), NPM)
+	if err != nil {
+		t.Fatalf("ParseCompromisedCSV: %v", err)
+	}
+	want := []TargetSpec{{System: NPM, Name: "malicious-package", Versions: []string{"*"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+type fakePackageVersionSource struct {
+	versions map[string][]string
+	names    []string
+	err      error
+}
+
+func (f *fakePackageVersionSource) QueryPackageVersions(names []string) (map[string][]string, error) {
+	f.names = append([]string(nil), names...)
+	return f.versions, f.err
+}
+
+func TestExpandTargetsResolvesWildcardVersions(t *testing.T) {
+	source := &fakePackageVersionSource{versions: map[string][]string{
+		"malicious-package": {"2.0.0", "1.10.0", "1.9.0"},
+	}}
+
+	got, err := expandTargets(NPM, []TargetSpec{{
+		Name: "malicious-package", Versions: []string{"*", "2.0.0"},
+	}}, source)
+	if err != nil {
+		t.Fatalf("expandTargets: %v", err)
+	}
+	want := []PackageVersion{
+		{System: NPM, Name: "malicious-package", Version: "1.9.0"},
+		{System: NPM, Name: "malicious-package", Version: "1.10.0"},
+		{System: NPM, Name: "malicious-package", Version: "2.0.0"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	if !reflect.DeepEqual(source.names, []string{"malicious-package"}) {
+		t.Errorf("queried names = %v", source.names)
+	}
+}
+
+func TestExpandTargetsRejectsUnknownWildcardPackage(t *testing.T) {
+	_, err := expandTargets(NPM, []TargetSpec{{Name: "missing", Versions: []string{"*"}}},
+		&fakePackageVersionSource{versions: map[string][]string{}})
+	if err == nil || !strings.Contains(err.Error(), `wildcard target "missing"`) {
+		t.Fatalf("error = %v, want unknown wildcard target error", err)
+	}
+}
+
 func TestParseCompromisedCSVEmptyFile(t *testing.T) {
 	got, err := ParseCompromisedCSV(writeCSV(t, "# nothing but a comment\n\n"), NPM)
 	if err != nil {
