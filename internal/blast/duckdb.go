@@ -55,6 +55,50 @@ type RawDependent struct {
 	Requirement      string
 }
 
+// QueryPackageVersions returns every version in the local snapshot for each
+// requested package. This is used to expand a target version of "*" before the
+// dependency traversal starts.
+func (s *DuckDBSource) QueryPackageVersions(names []string) (map[string][]string, error) {
+	result := make(map[string][]string, len(names))
+	if len(names) == 0 {
+		return result, nil
+	}
+
+	ctx := context.Background()
+	if _, err := s.conn.ExecContext(ctx, `CREATE OR REPLACE TEMP TABLE target_names(name VARCHAR)`); err != nil {
+		return nil, fmt.Errorf("creating target names table: %w", err)
+	}
+	if err := s.appendStrings("target_names", names); err != nil {
+		return nil, fmt.Errorf("loading target names table: %w", err)
+	}
+
+	rows, err := s.conn.QueryContext(ctx, `
+		SELECT DISTINCT v.Name, v.Version
+		FROM versions v
+		SEMI JOIN target_names t ON v.Name = t.name
+	`)
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "does not exist") || strings.Contains(msg, "Table with name versions") {
+			return nil, fmt.Errorf("database has no versions table; rebuild it with 'blast-radius download-data' before using '*' target versions")
+		}
+		return nil, fmt.Errorf("duckdb query failed: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, version string
+		if err := rows.Scan(&name, &version); err != nil {
+			return nil, fmt.Errorf("scanning duckdb row: %w", err)
+		}
+		result[name] = append(result[name], version)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("duckdb query failed: %w", err)
+	}
+	return result, nil
+}
+
 // QueryDirectDependents hands yield every (package, version, requirement) tuple
 // that directly depends on the given target package name.
 func (s *DuckDBSource) QueryDirectDependents(targetName string, yield func(RawDependent) error) error {

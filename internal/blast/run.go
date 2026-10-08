@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 )
@@ -41,6 +43,10 @@ type dependentSource interface {
 	QueryPublishedAt([]PackageVersion) (map[string]time.Time, error)
 }
 
+type packageVersionSource interface {
+	QueryPackageVersions([]string) (map[string][]string, error)
+}
+
 // parseBundledName splits deps.dev's synthetic bundled-node name, e.g.
 // "cloudstructs>0.6.11>@types/keyv", into the bundling root and the version it
 // bundled. Real npm names never contain '>', so three '>'-separated parts is
@@ -57,6 +63,9 @@ func parseBundledName(name string) (rootName, rootVersion string, ok bool) {
 //
 //	package_name;version1,version2,...   (semicolon-separated, no header)
 //	package_name,"version1,version2"     (an affected-packages.csv from a prior run)
+//
+// A version field of "*" is retained as a marker for Run to expand to every
+// version of that package in the local snapshot.
 //
 // Blank lines, '#'-comments, and a "package_name,..." header are ignored.
 func ParseCompromisedCSV(path string, system Ecosystem) ([]TargetSpec, error) {
@@ -177,17 +186,6 @@ func Run(ctx context.Context, opts Options) error {
 	system := opts.System
 	maxDepth := opts.MaxDepth
 
-	expanded := expandTargets(system, opts.Targets)
-
-	if len(opts.Targets) == 1 {
-		t := opts.Targets[0]
-		fmt.Fprintf(progress, "Computing blast radius for %s@%s (%s), depth=%d\n\n",
-			t.Name, strings.Join(t.Versions, ","), system, maxDepth)
-	} else {
-		fmt.Fprintf(progress, "Computing blast radius for %d compromised packages (%d versions total, %s), depth=%d\n\n",
-			len(opts.Targets), len(expanded), system, maxDepth)
-	}
-
 	resolvedDB, err := findDB(opts.DBPath, system)
 	if err != nil {
 		return err
@@ -199,6 +197,24 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	defer source.Close()
+
+	expanded, err := expandTargets(system, opts.Targets, source)
+	if err != nil {
+		return err
+	}
+
+	if len(opts.Targets) == 1 {
+		t := opts.Targets[0]
+		versionLabel := strings.Join(t.Versions, ",")
+		if slices.Contains(t.Versions, "*") {
+			versionLabel = fmt.Sprintf("* (%d versions in snapshot)", len(expanded))
+		}
+		fmt.Fprintf(progress, "Computing blast radius for %s@%s (%s), depth=%d\n\n",
+			t.Name, versionLabel, system, maxDepth)
+	} else {
+		fmt.Fprintf(progress, "Computing blast radius for %d compromised packages (%d versions total, %s), depth=%d\n\n",
+			len(opts.Targets), len(expanded), system, maxDepth)
+	}
 
 	result, err := computeBlastRadius(system, expanded, maxDepth, source, progress, start)
 	if err != nil {
@@ -237,14 +253,48 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-func expandTargets(system Ecosystem, targets []TargetSpec) []PackageVersion {
-	var expanded []PackageVersion
+func expandTargets(system Ecosystem, targets []TargetSpec, source packageVersionSource) ([]PackageVersion, error) {
+	var wildcardNames []string
+	wildcardSeen := make(map[string]bool)
 	for _, t := range targets {
-		for _, v := range t.Versions {
-			expanded = append(expanded, PackageVersion{System: system, Name: t.Name, Version: v})
+		if slices.Contains(t.Versions, "*") && !wildcardSeen[t.Name] {
+			wildcardNames = append(wildcardNames, t.Name)
+			wildcardSeen[t.Name] = true
 		}
 	}
-	return expanded
+
+	knownVersions, err := source.QueryPackageVersions(wildcardNames)
+	if err != nil {
+		return nil, fmt.Errorf("expanding wildcard target versions: %w", err)
+	}
+	for _, name := range wildcardNames {
+		if len(knownVersions[name]) == 0 {
+			return nil, fmt.Errorf("no versions found in the local snapshot for wildcard target %q", name)
+		}
+		sort.Slice(knownVersions[name], func(i, j int) bool {
+			return compareVersionStrings(knownVersions[name][i], knownVersions[name][j]) < 0
+		})
+	}
+
+	var expanded []PackageVersion
+	seen := make(map[nameVersion]bool)
+	for _, t := range targets {
+		for _, v := range t.Versions {
+			versions := []string{v}
+			if v == "*" {
+				versions = knownVersions[t.Name]
+			}
+			for _, version := range versions {
+				key := nameVersion{name: t.Name, version: version}
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				expanded = append(expanded, PackageVersion{System: system, Name: t.Name, Version: version})
+			}
+		}
+	}
+	return expanded, nil
 }
 
 // matchKey identifies a declared dependency on a frontier package: the same
