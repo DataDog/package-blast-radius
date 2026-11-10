@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
+	github.com/aquasecurity/go-pep440-version v0.0.1
 	github.com/duckdb/duckdb-go/v2 v2.10505.0
 	github.com/rodaine/table v1.3.1
 	github.com/spf13/cobra v1.10.2
@@ -14,6 +15,7 @@ require (
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/apache/arrow-go/v18 v18.7.0 // indirect
+	github.com/aquasecurity/go-version v0.0.1 // indirect
 	github.com/duckdb/duckdb-go-bindings v0.10505.0 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/darwin-amd64 v0.10505.0 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/darwin-arm64 v0.10505.0 // indirect
@@ -32,4 +34,5 @@ require (
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	golang.org/x/exp v0.0.0-20260727155853-b88d891fe743 // indirect
 	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 )

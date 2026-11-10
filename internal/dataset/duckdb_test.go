@@ -72,7 +72,7 @@ func TestBuildDatabaseCreatesTableAndIndex(t *testing.T) {
 	parquetDir := shardDir(t, "npm-edges", 3)
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 
-	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err != nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", "", newReporter(&strings.Builder{}, 1)); err != nil {
 		t.Fatalf("buildDatabase: %v", err)
 	}
 
@@ -115,7 +115,7 @@ func TestHeartbeatReportsElapsedTime(t *testing.T) {
 func TestBuildDatabaseRefusesAnEmptyDirectory(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 
-	err := buildDatabase(context.Background(), t.TempDir(), dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1))
+	err := buildDatabase(context.Background(), t.TempDir(), dbPath, "npm-edges", "", "", newReporter(&strings.Builder{}, 1))
 	if err == nil {
 		t.Fatal("buildDatabase succeeded with no shards")
 	}
@@ -130,7 +130,7 @@ func TestBuildDatabaseIgnoresOtherEcosystemsShards(t *testing.T) {
 	parquetDir := shardDir(t, "pypi-edges", 2)
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 
-	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err == nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", "", newReporter(&strings.Builder{}, 1)); err == nil {
 		t.Fatal("buildDatabase used pypi shards to build an npm database")
 	}
 }
@@ -148,7 +148,7 @@ func TestBuildDatabaseRemovesTheDatabaseWhenDuckDBFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err == nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", "", newReporter(&strings.Builder{}, 1)); err == nil {
 		t.Fatal("buildDatabase reported success on unreadable parquet")
 	}
 	// A leftover database would let a later analyze run query an incomplete graph.
@@ -164,7 +164,7 @@ func TestBuildDatabaseReplacesAnExistingDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", newReporter(&strings.Builder{}, 1)); err != nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "", "", newReporter(&strings.Builder{}, 1)); err != nil {
 		t.Fatalf("buildDatabase: %v", err)
 	}
 
@@ -187,7 +187,7 @@ func TestBuildDatabaseCreatesVersionsTableWhenShardsPresent(t *testing.T) {
 	}
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 
-	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "npm-versions", newReporter(&strings.Builder{}, 1)); err != nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "npm-versions", "", newReporter(&strings.Builder{}, 1)); err != nil {
 		t.Fatalf("buildDatabase: %v", err)
 	}
 
@@ -204,13 +204,51 @@ func TestBuildDatabaseSkipsVersionsTableWhenNoShardsExist(t *testing.T) {
 	parquetDir := shardDir(t, "npm-edges", 1)
 	dbPath := filepath.Join(t.TempDir(), "npm-deps.duckdb")
 
-	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "npm-versions", newReporter(&strings.Builder{}, 1)); err != nil {
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "npm-edges", "npm-versions", "", newReporter(&strings.Builder{}, 1)); err != nil {
 		t.Fatalf("buildDatabase: %v", err)
 	}
 
 	db := openBuilt(t, dbPath)
 	if hasTable(t, db, "versions") {
 		t.Error("a versions table was created with no shards on disk")
+	}
+}
+
+func TestBuildDatabaseCreatesDownloadsTableWhenShardsPresent(t *testing.T) {
+	parquetDir := shardDir(t, "pypi-edges", 1)
+	data := validParquetFixture(t)
+	for i := range 2 {
+		name := filepath.Join(parquetDir, "pypi-downloads-"+string(rune('a'+i))+".parquet")
+		if err := os.WriteFile(name, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dbPath := filepath.Join(t.TempDir(), "pypi-deps.duckdb")
+
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "pypi-edges", "", "pypi-downloads", newReporter(&strings.Builder{}, 1)); err != nil {
+		t.Fatalf("buildDatabase: %v", err)
+	}
+
+	db := openBuilt(t, dbPath)
+	if !hasTable(t, db, "downloads") {
+		t.Error("the downloads table was not created")
+	}
+	if !hasIndex(t, db, "downloads", "idx_downloads_name") {
+		t.Error("the downloads Name index was not created")
+	}
+}
+
+func TestBuildDatabaseSkipsDownloadsTableWhenNoShardsExist(t *testing.T) {
+	parquetDir := shardDir(t, "pypi-edges", 1)
+	dbPath := filepath.Join(t.TempDir(), "pypi-deps.duckdb")
+
+	if err := buildDatabase(context.Background(), parquetDir, dbPath, "pypi-edges", "", "pypi-downloads", newReporter(&strings.Builder{}, 1)); err != nil {
+		t.Fatalf("buildDatabase: %v", err)
+	}
+
+	db := openBuilt(t, dbPath)
+	if hasTable(t, db, "downloads") {
+		t.Error("a downloads table was created with no shards on disk")
 	}
 }
 

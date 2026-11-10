@@ -138,6 +138,51 @@ func (s *DuckDBSource) QueryPublishedAt(pkgs []PackageVersion) (map[string]time.
 	return result, nil
 }
 
+// QueryWeeklyDownloads looks up package-level weekly downloads keyed by package
+// name. A missing downloads table means the database was built without
+// ingestion-time counts; callers can fall back to registry/API enrichment.
+func (s *DuckDBSource) QueryWeeklyDownloads(names []string) (map[string]int64, error) {
+	if len(names) == 0 {
+		return map[string]int64{}, nil
+	}
+
+	ctx := context.Background()
+	if _, err := s.conn.ExecContext(ctx, `CREATE OR REPLACE TEMP TABLE download_lookup(name VARCHAR)`); err != nil {
+		return nil, fmt.Errorf("creating download lookup table: %w", err)
+	}
+	if err := s.appendStrings("download_lookup", names); err != nil {
+		return nil, fmt.Errorf("loading download lookup table: %w", err)
+	}
+
+	rows, err := s.conn.QueryContext(ctx, `
+		SELECT d.Name, d.WeeklyDownloads
+		FROM downloads d
+		JOIN download_lookup t ON d.Name = t.name
+	`)
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "does not exist") || strings.Contains(msg, "Table with name downloads") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("duckdb query failed: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var name string
+		var weeklyDownloads int64
+		if err := rows.Scan(&name, &weeklyDownloads); err != nil {
+			return nil, fmt.Errorf("scanning duckdb row: %w", err)
+		}
+		result[name] = weeklyDownloads
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("duckdb query failed: %w", err)
+	}
+	return result, nil
+}
+
 // scanDependentRows streams rows rather than collecting — a popular package
 // has millions of direct dependents, and a whole depth's worth is gigabytes.
 func scanDependentRows(rows *sql.Rows, yield func(RawDependent) error) error {

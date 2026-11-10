@@ -16,7 +16,7 @@ import (
 // parquetDir. The DepName index is what makes reverse dependency lookup fast —
 // the whole reason for materialising a database instead of querying parquet
 // directly.
-func buildDatabase(ctx context.Context, parquetDir, dbPath, parquetPrefix, versionsPrefix string, r *reporter) error {
+func buildDatabase(ctx context.Context, parquetDir, dbPath, parquetPrefix, versionsPrefix, downloadsPrefix string, r *reporter) error {
 	shards, err := filepath.Glob(filepath.Join(parquetDir, parquetPrefix+"-*.parquet"))
 	if err != nil {
 		return err
@@ -54,6 +54,18 @@ func buildDatabase(ctx context.Context, parquetDir, dbPath, parquetPrefix, versi
 			query += fmt.Sprintf(
 				"\nCREATE TABLE versions AS SELECT * FROM '%s';\nCREATE INDEX idx_version_name ON versions(Name, Version);",
 				escapeSingleQuotes(versionsGlob))
+		}
+	}
+	if downloadsPrefix != "" {
+		downloadShards, err := filepath.Glob(filepath.Join(parquetDir, downloadsPrefix+"-*.parquet"))
+		if err != nil {
+			return err
+		}
+		if len(downloadShards) > 0 {
+			downloadsGlob := filepath.Join(parquetDir, downloadsPrefix+"-*.parquet")
+			query += fmt.Sprintf(
+				"\nCREATE TABLE downloads AS SELECT Name, WeeklyDownloads, WindowStart, WindowEnd FROM '%s';\nCREATE INDEX idx_downloads_name ON downloads(Name);",
+				escapeSingleQuotes(downloadsGlob))
 		}
 	}
 

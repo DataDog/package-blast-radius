@@ -15,7 +15,8 @@ func TestParseEcosystem(t *testing.T) {
 		{"npm", NPM, true},
 		{"NPM", NPM, true},
 		{"  npm  ", NPM, true},
-		{"pypi", "", false}, // declared but not yet implemented
+		{"pypi", PyPI, true},
+		{"pip", PyPI, true},
 		{"cargo", "", false},
 		{"", "", false},
 	}
@@ -58,6 +59,14 @@ func TestEveryEcosystemIsFullyConfigured(t *testing.T) {
 		if info.matches == nil {
 			t.Errorf("%s has no version matcher", eco)
 		}
+		if info.enrich != nil {
+			if info.enrichRate <= 0 {
+				t.Errorf("%s has an enricher but non-positive default rate %v", eco, info.enrichRate)
+			}
+			if info.enrichWorkers <= 0 {
+				t.Errorf("%s has an enricher but non-positive default workers %d", eco, info.enrichWorkers)
+			}
+		}
 		// A BigQuery export is optional, but half of one produces shards the
 		// duckdb build glob would never find.
 		if (info.bqSystem == "") != (info.parquetPrefix == "") {
@@ -68,19 +77,20 @@ func TestEveryEcosystemIsFullyConfigured(t *testing.T) {
 }
 
 func TestUnregisteredEcosystemIsInert(t *testing.T) {
-	if got := PyPI.DBName(); got != "" {
-		t.Errorf("PyPI.DBName() = %q, want empty until it is registered", got)
+	unknown := Ecosystem("UNKNOWN")
+	if got := unknown.DBName(); got != "" {
+		t.Errorf("unknown.DBName() = %q, want empty", got)
 	}
-	if PyPI.SupportsEnrichment() {
-		t.Error("PyPI reports enrichment support without being registered")
+	if unknown.SupportsEnrichment() {
+		t.Error("unknown ecosystem reports enrichment support")
 	}
-	if MatchesVersion(PyPI, ">=1.0", "1.5") {
+	if MatchesVersion(unknown, ">=1.0", "1.5") {
 		t.Error("MatchesVersion matched for an unregistered ecosystem")
 	}
-	if PyPI.SupportsDatasetDownload() {
-		t.Error("PyPI reports dataset download support without being registered")
+	if unknown.SupportsDatasetDownload() {
+		t.Error("unknown ecosystem reports dataset download support")
 	}
-	if err := Enrich(context.Background(), PyPI, nil, EnrichOptions{Workers: 1}); err != nil {
+	if err := Enrich(context.Background(), unknown, nil, EnrichOptions{Workers: 1}); err != nil {
 		t.Errorf("Enrich on an unregistered ecosystem returned %v, want nil", err)
 	}
 }
@@ -100,5 +110,32 @@ func TestNPMIsConfigured(t *testing.T) {
 	}
 	if got := NPM.ParquetPrefix(); got != "npm-edges" {
 		t.Errorf("NPM.ParquetPrefix() = %q", got)
+	}
+}
+
+func TestPyPIIsConfigured(t *testing.T) {
+	if got := PyPI.DBName(); got != "pypi-deps.duckdb" {
+		t.Errorf("PyPI.DBName() = %q", got)
+	}
+	if PyPI.SupportsEnrichment() {
+		t.Error("PyPI should not use registry download enrichment")
+	}
+	if !PyPI.SupportsDatasetDownload() {
+		t.Error("PyPI should support dataset download")
+	}
+	if !PyPI.SupportsDownloadCountDataset() {
+		t.Error("PyPI should support ingestion-time download counts")
+	}
+	if got := PyPI.BigQuerySystem(); got != "PYPI" {
+		t.Errorf("PyPI.BigQuerySystem() = %q, want PYPI", got)
+	}
+	if got := PyPI.ParquetPrefix(); got != "pypi-edges" {
+		t.Errorf("PyPI.ParquetPrefix() = %q", got)
+	}
+	if got := PyPI.DownloadsParquetPrefix(); got != "pypi-downloads" {
+		t.Errorf("PyPI.DownloadsParquetPrefix() = %q", got)
+	}
+	if got := NormalizePackageName(PyPI, " My_Package.Name "); got != "my-package-name" {
+		t.Errorf("NormalizePackageName(PyPI) = %q", got)
 	}
 }

@@ -40,6 +40,9 @@ type Options struct {
 	BuildOnly bool
 	// SkipBuild downloads the shards but leaves the database alone.
 	SkipBuild bool
+	// IncludeDownloadCounts adds package-level weekly download counts to the
+	// built database when the ecosystem has a public dataset for them.
+	IncludeDownloadCounts bool
 
 	Stdin    io.Reader
 	Progress io.Writer
@@ -194,6 +197,9 @@ func preflight(opts *Options) error {
 			problems = append(problems, fmt.Sprintf("invalid --snapshot-date %q: expected YYYY-MM-DD", opts.SnapshotDate))
 		}
 	}
+	if opts.IncludeDownloadCounts && !opts.System.SupportsDownloadCountDataset() {
+		problems = append(problems, fmt.Sprintf("download-count ingestion is not available for %s", opts.System))
+	}
 
 	if len(problems) > 0 {
 		return fmt.Errorf("cannot start:\n  - %s", strings.Join(problems, "\n  - "))
@@ -341,7 +347,21 @@ func runExport(ctx context.Context, c *client, bucket, prefix string, opts *Opti
 		}
 	}
 
+	if opts.IncludeDownloadCounts {
+		downloadStart, downloadEnd := downloadCountWindow(opts.now().UTC())
+		downloadsSQL := pypiDownloadCountsSQL(downloadStart, downloadEnd)
+		if err := exportOne(ctx, c, bucket, prefix, opts, ask, r, opts.System.DownloadsParquetPrefix(), downloadsSQL); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func downloadCountWindow(now time.Time) (startDate, endDate string) {
+	end := now.AddDate(0, 0, -1)
+	start := end.AddDate(0, 0, -6)
+	return start.Format("2006-01-02"), end.Format("2006-01-02")
 }
 
 // exportOne prices, confirms, runs, and extracts a single query into its own
@@ -399,7 +419,11 @@ func buildAndReport(ctx context.Context, opts *Options, r *reporter) error {
 	dbPath := opts.dbPath()
 
 	r.step("Build")
-	if err := buildDatabase(ctx, parquetDir, dbPath, opts.System.ParquetPrefix(), opts.System.VersionsParquetPrefix(), r); err != nil {
+	downloadsPrefix := ""
+	if opts.IncludeDownloadCounts {
+		downloadsPrefix = opts.System.DownloadsParquetPrefix()
+	}
+	if err := buildDatabase(ctx, parquetDir, dbPath, opts.System.ParquetPrefix(), opts.System.VersionsParquetPrefix(), downloadsPrefix, r); err != nil {
 		return err
 	}
 
@@ -422,6 +446,9 @@ func buildAndReport(ctx context.Context, opts *Options, r *reporter) error {
 		prefixes := []string{opts.System.ParquetPrefix()}
 		if v := opts.System.VersionsParquetPrefix(); v != "" {
 			prefixes = append(prefixes, v)
+		}
+		if opts.IncludeDownloadCounts {
+			prefixes = append(prefixes, opts.System.DownloadsParquetPrefix())
 		}
 		if err := removeShards(parquetDir, prefixes); err != nil {
 			r.field("shards", "kept in %s: %v", parquetDir, err)

@@ -32,7 +32,11 @@ func newDownloadFixture(t *testing.T) *downloadFixture {
 
 // dbPath is where Download builds the database for this fixture's ecosystem.
 func (f *downloadFixture) dbPath() string {
-	return filepath.Join(f.dataDir, blast.NPM.DBName())
+	return f.dbPathFor(blast.NPM)
+}
+
+func (f *downloadFixture) dbPathFor(system blast.Ecosystem) string {
+	return filepath.Join(f.dataDir, system.DBName())
 }
 
 // databaseBuilt reports whether a database was built at dbPath.
@@ -275,6 +279,70 @@ func TestDownloadHappyPathBuildsTheDatabase(t *testing.T) {
 	}
 }
 
+func TestDownloadPyPIIncludesDownloadCountsWhenRequested(t *testing.T) {
+	f := newDownloadFixture(t)
+	prefix := "blast-radius/2026-03-23/"
+	f.gcp.objects = []gcsObject{
+		{Name: prefix + "pypi-edges-a.parquet"},
+		{Name: prefix + "pypi-versions-a.parquet"},
+		{Name: prefix + "pypi-downloads-a.parquet"},
+	}
+	f.gcp.hideObjectsUntilList = 1
+
+	err := f.run(t, "y\ny\ny\n", func(o *Options) {
+		o.System = blast.PyPI
+		o.IncludeDownloadCounts = true
+		o.now = func() time.Time { return time.Date(2026, 8, 11, 16, 0, 0, 0, time.UTC) }
+	})
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+
+	if jobs := f.gcp.billableJobs(); len(jobs) != 6 {
+		t.Errorf("ran %d billable jobs, want 6 (edges, versions, downloads query+extract)", len(jobs))
+	}
+	db := openBuilt(t, f.dbPathFor(blast.PyPI))
+	if !hasTable(t, db, "downloads") {
+		t.Fatal("the downloads table was not created")
+	}
+	var count int64
+	if err := db.QueryRow(`SELECT WeeklyDownloads FROM downloads WHERE Name = 'a'`).Scan(&count); err != nil {
+		t.Fatalf("querying downloads: %v", err)
+	}
+	if count != 1234 {
+		t.Errorf("WeeklyDownloads = %d, want 1234", count)
+	}
+	var sawDownloadQuery bool
+	for _, req := range f.gcp.recorded() {
+		config, _ := req.Body["configuration"].(map[string]any)
+		query, _ := config["query"].(map[string]any)
+		sql, _ := query["query"].(string)
+		if strings.Contains(sql, "bigquery-public-data.pypi.file_downloads") &&
+			strings.Contains(sql, "2026-08-04") &&
+			strings.Contains(sql, "2026-08-10") {
+			sawDownloadQuery = true
+		}
+	}
+	if !sawDownloadQuery {
+		t.Errorf("did not see a correctly windowed PyPI download-count query: %+v", f.gcp.recorded())
+	}
+}
+
+func TestDownloadRejectsDownloadCountsForNPM(t *testing.T) {
+	f := newDownloadFixture(t)
+
+	err := f.run(t, "y\n", func(o *Options) { o.IncludeDownloadCounts = true })
+	if err == nil {
+		t.Fatal("Download accepted download-count ingestion for npm")
+	}
+	if !strings.Contains(err.Error(), "download-count ingestion") {
+		t.Errorf("error %q should explain unsupported download-count ingestion", err)
+	}
+	if got := len(f.gcp.recorded()); got != 0 {
+		t.Errorf("issued %d requests before rejecting npm download-count ingestion", got)
+	}
+}
+
 func TestDownloadRemovesShardsUnlessAskedToKeepThem(t *testing.T) {
 	for _, keep := range []bool{false, true} {
 		f := newDownloadFixture(t)
@@ -412,7 +480,7 @@ func TestDiscoverySearchesBackwardsAndThenGivesUp(t *testing.T) {
 func TestDownloadRejectsAnEcosystemWithoutAnExport(t *testing.T) {
 	f := newDownloadFixture(t)
 
-	err := f.run(t, "y\n", func(o *Options) { o.System = blast.PyPI })
+	err := f.run(t, "y\n", func(o *Options) { o.System = blast.Ecosystem("UNKNOWN") })
 	if err == nil {
 		t.Fatal("Download accepted an ecosystem with no BigQuery export")
 	}

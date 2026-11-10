@@ -110,6 +110,19 @@ func versionExportSQL(bqSystem, snapshotDate string) string {
 		snapshotDate, bqSystem)
 }
 
+func pypiDownloadCountsSQL(startDate, endDate string) string {
+	return fmt.Sprintf(
+		"SELECT REGEXP_REPLACE(LOWER(file.project), r'[-_.]+', '-') AS Name,\n"+
+			"       COUNT(*) AS WeeklyDownloads,\n"+
+			"       DATE('%s') AS WindowStart,\n"+
+			"       DATE('%s') AS WindowEnd\n"+
+			"FROM `bigquery-public-data.pypi.file_downloads`\n"+
+			"WHERE DATE(timestamp) BETWEEN '%s' AND '%s'\n"+
+			"  AND COALESCE(details.installer.name, '') != 'bandersnatch'\n"+
+			"GROUP BY Name",
+		startDate, endDate, startDate, endDate)
+}
+
 // formatCost converts a byte count to TiB and on-demand dollars. Kept pure and
 // separate so the arithmetic is testable and locale-independent.
 func formatCost(bytes int64) (tib, usd float64) {

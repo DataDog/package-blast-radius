@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFormatCost(t *testing.T) {
@@ -196,6 +197,31 @@ func TestVersionExportSQLIsScopedByDateAndSystem(t *testing.T) {
 	}
 	if !strings.Contains(sql, "UpstreamPublishedAt AS PublishedAt") {
 		t.Errorf("SQL is missing the publish date column:\n%s", sql)
+	}
+}
+
+func TestPyPIDownloadCountsSQLIsScopedByTimestampAndNormalizesNames(t *testing.T) {
+	sql := pypiDownloadCountsSQL("2026-08-04", "2026-08-10")
+
+	for _, want := range []string{
+		"`bigquery-public-data.pypi.file_downloads`",
+		"DATE(timestamp) BETWEEN '2026-08-04' AND '2026-08-10'",
+		"REGEXP_REPLACE(LOWER(file.project), r'[-_.]+', '-') AS Name",
+		"COUNT(*) AS WeeklyDownloads",
+		"COALESCE(details.installer.name, '') != 'bandersnatch'",
+		"DATE('2026-08-04') AS WindowStart",
+		"DATE('2026-08-10') AS WindowEnd",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("SQL is missing %q:\n%s", want, sql)
+		}
+	}
+}
+
+func TestDownloadCountWindowUsesTheLastSevenCompleteDays(t *testing.T) {
+	start, end := downloadCountWindow(time.Date(2026, 8, 11, 16, 0, 0, 0, time.UTC))
+	if start != "2026-08-04" || end != "2026-08-10" {
+		t.Fatalf("downloadCountWindow = %s..%s, want 2026-08-04..2026-08-10", start, end)
 	}
 }
 

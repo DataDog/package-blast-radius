@@ -35,9 +35,9 @@ func newEnrichDownloadCountCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "enrich-download-count <output-folder>",
-		Short: "Add npm weekly download counts to a saved blast-radius report",
-		Long: `Fetch weekly download counts from the npm registry and write them back
-into a report a previous 'blast-radius analyze' run saved.
+		Short: "Add weekly download counts to a saved blast-radius report",
+		Long: `Fetch weekly download counts from the npm downloads API and write them
+back into a report a previous 'blast-radius analyze' run saved.
 
 Takes the output folder analyze created (the one containing blast-radius.json,
 affected-packages.csv, and paths.csv) and enriches all three in place: the JSON
@@ -45,11 +45,14 @@ report and paths.csv gain real weekly_downloads values, and affected-packages.cs
 is rewritten for consistency. The result is byte-for-byte what
 'analyze --enrich-with-download-count' would have produced.
 
-The npm downloads API rate-limits per IP behind Cloudflare, so requests are
-paced adaptively: the pace self-tunes down on 429 and back up on success
-(--rate is just the starting ceiling), so you don't have to guess the limit.
-Set NPM_TOKEN (or pass --npm-token) to lift the unauthenticated rate limit;
-without it the run is best-effort and much slower.
+Currently this command supports npm reports. PyPI download counts are imported
+when building the local database with 'download-data pypi --include-download-counts'.
+
+For npm reports, the npm downloads API rate-limits per IP behind Cloudflare, so
+requests are paced adaptively: the pace self-tunes down on 429 and back up on
+success (--rate is just the starting ceiling), so you don't have to guess the
+limit. Set NPM_TOKEN (or pass --npm-token) to lift the unauthenticated rate
+limit; without it the run is best-effort and much slower.
 
 By default only packages still missing a download count (weekly_downloads = -1)
 are fetched, so re-running completes a partial/failed enrichment. Pass --force
@@ -73,16 +76,6 @@ Examples:
 			folder := args[0]
 			progress := cmd.ErrOrStderr()
 
-			// Token: flag wins, then env. Warn (but continue) if neither is set.
-			token := strings.TrimSpace(npmToken)
-			if token == "" {
-				token = strings.TrimSpace(os.Getenv("NPM_TOKEN"))
-			}
-			blast.SetNPMAuthToken(token)
-			if token == "" {
-				fmt.Fprintln(progress, "warning: NPM_TOKEN is not set; the npm downloads API will heavily rate-limit unauthenticated requests. Set NPM_TOKEN (or pass --npm-token) to lift it. Continuing best-effort.")
-			}
-
 			jsonPath := filepath.Join(folder, "blast-radius.json")
 			if _, err := os.Stat(jsonPath); err != nil {
 				return fmt.Errorf("looking for %s: %w\nDid you point this at an 'analyze' output folder?", jsonPath, err)
@@ -101,6 +94,25 @@ Examples:
 			br, err := blast.BlastResultFromJSON(result)
 			if err != nil {
 				return fmt.Errorf("reconstructing result: %w", err)
+			}
+			system, ok := blast.ParseEcosystem(result.System)
+			if !ok {
+				return fmt.Errorf("unsupported ecosystem %q", result.System)
+			}
+			if !system.SupportsEnrichment() {
+				return fmt.Errorf("download-count enrichment is not available for %s", system)
+			}
+			rate, workers = effectiveEnrichSettings(system, rate, cmd.Flags().Changed("rate"), workers, cmd.Flags().Changed("workers"))
+			if system == blast.NPM {
+				// Token: flag wins, then env. Warn (but continue) if neither is set.
+				token := strings.TrimSpace(npmToken)
+				if token == "" {
+					token = strings.TrimSpace(os.Getenv("NPM_TOKEN"))
+				}
+				blast.SetNPMAuthToken(token)
+				if token == "" {
+					fmt.Fprintln(progress, "warning: NPM_TOKEN is not set; the npm downloads API will heavily rate-limit unauthenticated requests. Set NPM_TOKEN (or pass --npm-token) to lift it. Continuing best-effort.")
+				}
 			}
 
 			cachePath := filepath.Join(folder, downloadCountCacheArtifact)
@@ -139,13 +151,13 @@ Examples:
 					}
 				}
 				if force || a.WeeklyDownloads < 0 {
-					if strings.HasPrefix(a.Name, "@") {
+					if system == blast.NPM && strings.HasPrefix(a.Name, "@") {
 						pendingScoped++
 					}
 					need[a.Name] = struct{}{}
 				}
 			}
-			if pendingScoped > blast.NPMScopedPackageDefaultThreshold && !includeScoped {
+			if system == blast.NPM && pendingScoped > blast.NPMScopedPackageDefaultThreshold && !includeScoped {
 				for name := range need {
 					if strings.HasPrefix(name, "@") {
 						delete(need, name)
@@ -192,7 +204,7 @@ Examples:
 			toFetch := make([]blast.AffectedPackage, 0, len(need))
 			for name := range need {
 				toFetch = append(toFetch, blast.AffectedPackage{
-					PackageVersion:  blast.PackageVersion{System: blast.NPM, Name: name},
+					PackageVersion:  blast.PackageVersion{System: system, Name: name},
 					WeeklyDownloads: -1,
 				})
 			}
@@ -232,7 +244,7 @@ Examples:
 			ctx, stopSignals := signal.NotifyContext(baseCtx, os.Interrupt, syscall.SIGTERM)
 			defer stopSignals()
 			interrupted := false
-			if err := blast.Enrich(ctx, blast.NPM, toFetch, blast.EnrichOptions{
+			if err := blast.Enrich(ctx, system, toFetch, blast.EnrichOptions{
 				Workers:                workers,
 				Rate:                   rate,
 				Progress:               progress,
@@ -293,13 +305,23 @@ Examples:
 		},
 	}
 
-	cmd.Flags().Float64Var(&rate, "rate", 1.0, "starting request rate (req/s) for the npm downloads API; the pacer self-tunes down on 429 and up on success, so this is just the ceiling")
-	cmd.Flags().IntVar(&workers, "workers", 4, "concurrent requests (pipeline depth); the rate limiter bounds the actual rate")
+	cmd.Flags().Float64Var(&rate, "rate", 0, "request rate (req/s) for download-count API calls; defaults by ecosystem")
+	cmd.Flags().IntVar(&workers, "workers", 0, "concurrent requests (pipeline depth); defaults by ecosystem")
 	cmd.Flags().StringVar(&npmToken, "npm-token", "", "npm access token (or set NPM_TOKEN); lifts the unauthenticated rate limit")
 	cmd.Flags().BoolVar(&force, "force", false, "re-fetch download counts for every package, even already-enriched ones")
-	cmd.Flags().BoolVar(&includeScoped, "include-scoped-packages", false, "include scoped packages even when npm requires slow one-by-one lookups")
+	cmd.Flags().BoolVar(&includeScoped, "include-scoped-packages", false, "for npm reports, include scoped packages even when npm requires slow one-by-one lookups")
 
 	return cmd
+}
+
+func effectiveEnrichSettings(system blast.Ecosystem, rate float64, rateChanged bool, workers int, workersChanged bool) (float64, int) {
+	if !rateChanged {
+		rate = system.DefaultEnrichRate()
+	}
+	if !workersChanged {
+		workers = system.DefaultEnrichWorkers()
+	}
+	return rate, workers
 }
 
 // loadJSONResult reads a blast-radius.json report, transparently handling a
