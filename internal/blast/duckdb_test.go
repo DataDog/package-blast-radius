@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,7 +50,11 @@ func newFixtureDB(t *testing.T) *DuckDBSource {
 			('c', '1.0.0', 'lodash', '^4.0.0')`,
 		`CREATE INDEX idx_depname ON edges(DepName)`,
 		`CREATE TABLE versions(Name VARCHAR, Version VARCHAR, PublishedAt TIMESTAMP)`,
-		`INSERT INTO versions VALUES ('a', '1.0.0', '2024-01-02 03:04:05')`,
+		`INSERT INTO versions VALUES
+			('a', '1.0.0', '2024-01-02 03:04:05'),
+			('axios', '2.0.0', '2024-02-01 00:00:00'),
+			('axios', '1.10.0', '2024-01-10 00:00:00'),
+			('axios', '1.9.0', '2024-01-09 00:00:00')`,
 		`CREATE INDEX idx_version_name ON versions(Name, Version)`,
 	}
 	for _, stmt := range stmts {
@@ -89,6 +94,23 @@ func TestQueryDirectDependents(t *testing.T) {
 	sortDependents(want)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got  %+v\nwant %+v", got, want)
+	}
+}
+
+func TestQueryPackageVersions(t *testing.T) {
+	source := newFixtureDB(t)
+
+	got, err := source.QueryPackageVersions([]string{"axios", "missing"})
+	if err != nil {
+		t.Fatalf("QueryPackageVersions: %v", err)
+	}
+	sort.Strings(got["axios"])
+	want := []string{"1.10.0", "1.9.0", "2.0.0"}
+	if !reflect.DeepEqual(got["axios"], want) {
+		t.Errorf("axios versions = %v, want %v", got["axios"], want)
+	}
+	if len(got["missing"]) != 0 {
+		t.Errorf("missing versions = %v, want none", got["missing"])
 	}
 }
 
@@ -198,6 +220,31 @@ func TestQueryPublishedAtMissingVersionsTable(t *testing.T) {
 	}
 	if result != nil {
 		t.Errorf("got %+v, want nil", result)
+	}
+}
+
+func TestQueryPackageVersionsRequiresVersionsTable(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "no-versions.duckdb")
+	setup, err := sql.Open("duckdb", dbPath)
+	if err != nil {
+		t.Fatalf("opening fixture db: %v", err)
+	}
+	if _, err := setup.Exec(`CREATE TABLE edges(Name VARCHAR, Version VARCHAR, DepName VARCHAR, Requirement VARCHAR)`); err != nil {
+		t.Fatalf("setting up fixture db: %v", err)
+	}
+	if err := setup.Close(); err != nil {
+		t.Fatalf("closing fixture db: %v", err)
+	}
+
+	source, err := NewDuckDBSource(dbPath)
+	if err != nil {
+		t.Fatalf("NewDuckDBSource: %v", err)
+	}
+	defer source.Close()
+
+	_, err = source.QueryPackageVersions([]string{"axios"})
+	if err == nil || !strings.Contains(err.Error(), "no versions table") {
+		t.Fatalf("error = %v, want missing versions table guidance", err)
 	}
 }
 

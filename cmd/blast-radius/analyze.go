@@ -64,6 +64,8 @@ Examples:
 --csv format, one package per line:
   axios;1.14.1,0.30.4
   lodash;4.17.20,4.17.21
+  # '*' means every version known to the local snapshot:
+  malicious-package;*
 
 An affected-packages.csv from a previous run is also accepted, so one run's
 results can be the next run's targets.`,
@@ -143,8 +145,8 @@ results can be the next run's targets.`,
 	cmd.Flags().BoolVar(&enrichScoped, "enrich-scoped-packages", false, "with --enrich-with-download-count, include scoped packages even when npm requires slow one-by-one lookups")
 	cmd.Flags().IntVar(&top, "top", 50, "number of results to display in table mode (0 = all)")
 	cmd.Flags().IntVar(&depth, "depth", 1, "max dependency depth (1 = direct only, 2+ = transitive)")
-	cmd.Flags().StringVar(&versions, "versions", "", "comma-separated list of compromised versions")
-	cmd.Flags().StringVar(&csvPath, "csv", "", "path to a CSV of compromised packages ('package;v1,v2' per line, or an affected-packages.csv from a previous run)")
+	cmd.Flags().StringVar(&versions, "versions", "", "comma-separated list of compromised versions ('*' = every version in the snapshot)")
+	cmd.Flags().StringVar(&csvPath, "csv", "", "path to a CSV of compromised packages ('package;v1,v2' or 'package;*' per line, or an affected-packages.csv from a previous run)")
 	cmd.Flags().StringVar(&outputDir, "output-dir", "", "where to save this run's artifacts (default: output/<timestamp>/)")
 	cmd.Flags().BoolVar(&noSave, "no-save", false, "don't save artifacts to disk, only write to stdout")
 	cmd.Flags().StringVar(&reportName, "report-name", "", "optional title shown as the heading in the viewer instead of the synthesized compromised-package count")

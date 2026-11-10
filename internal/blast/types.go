@@ -27,7 +27,8 @@ type AffectedPackage struct {
 	WeeklyDownloads int64
 }
 
-// TargetSpec is a compromised package and the affected versions to check against.
+// TargetSpec is a compromised package and the affected versions to check
+// against. A version of "*" means every version known to the local snapshot.
 type TargetSpec struct {
 	System   Ecosystem
 	Name     string
